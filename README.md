@@ -48,9 +48,16 @@ pip install -r requirements-dev.txt
 
 python manage.py migrate
 python manage.py createsuperuser     # по желанию, для /admin/
-python manage.py seed_demo           # по желанию: alice, bob, carol / demo-pass-123
+python manage.py seed_demo           # по желанию: демо-данные, логины и пароль в выводе
 python manage.py runserver
 ```
+
+`seed_demo` создаёт пользователей `alice`, `bob`, `carol` с задачами и комментариями.
+Пароль генерируется заново при каждом запуске и печатается один раз; свой можно задать
+через `DEMO_PASSWORD` (тогда он не печатается) или `--password`. Повторный запуск не
+дублирует данные, но ставит демо-пользователям новый пароль. Команда — только для
+локального или закрытого окружения: на публично доступном стенде демо-учётки с известным
+паролем не нужны.
 
 После запуска:
 
@@ -69,7 +76,7 @@ SQLite и кэш в памяти процесса.
 ```bash
 cp .env.example .env    # заменить все change-me: DJANGO_SECRET_KEY и POSTGRES_PASSWORD
 docker compose up --build -d
-docker compose exec web python manage.py seed_demo          # демо-данные
+docker compose exec web python manage.py seed_demo          # демо-данные, только на закрытом стенде
 docker compose exec web python manage.py createsuperuser    # админ
 ```
 

@@ -1,4 +1,6 @@
 import datetime
+import os
+import secrets
 
 from django.contrib.auth import get_user_model
 from django.core.management.base import BaseCommand
@@ -7,16 +9,26 @@ from django.utils import timezone
 
 from apps.tasks.models import Comment, Task
 
-DEMO_PASSWORD = "demo-pass-123"
 DEMO_USERS = ["alice", "bob", "carol"]
 
 
 class Command(BaseCommand):
-    help = "Create demo users, tasks and comments. Safe to run repeatedly."
+    help = (
+        "Create demo users, tasks and comments. Safe to run repeatedly; every run sets "
+        "a new password for the demo users. For local or private environments only."
+    )
+
+    def add_arguments(self, parser):
+        parser.add_argument(
+            "--password",
+            default=os.environ.get("DEMO_PASSWORD"),
+            help="Password for the demo users (default: $DEMO_PASSWORD, else a random one).",
+        )
 
     @transaction.atomic
     def handle(self, *args, **options):
-        users = {name: self._get_or_create_user(name) for name in DEMO_USERS}
+        password = options["password"] or secrets.token_urlsafe(12)
+        users = {name: self._upsert_user(name, password) for name in DEMO_USERS}
         today = timezone.localdate()
 
         demo_tasks = [
@@ -52,19 +64,16 @@ class Command(BaseCommand):
                     task=task, author=users["bob"], text="I can help with this."
                 )
 
-        self.stdout.write(
-            self.style.SUCCESS(
-                f"Demo data ready: users {', '.join(DEMO_USERS)} "
-                f"(password: {DEMO_PASSWORD}), {Task.objects.count()} tasks."
-            )
-        )
+        self.stdout.write(self.style.SUCCESS(f"Demo data ready: {Task.objects.count()} tasks."))
+        self.stdout.write(f"Users: {', '.join(DEMO_USERS)}")
+        if not options["password"]:
+            self.stdout.write(f"Password: {password}")
 
     @staticmethod
-    def _get_or_create_user(username: str):
-        user, created = get_user_model().objects.get_or_create(
+    def _upsert_user(username: str, password: str):
+        user, _ = get_user_model().objects.get_or_create(
             username=username, defaults={"email": f"{username}@example.com"}
         )
-        if created:
-            user.set_password(DEMO_PASSWORD)
-            user.save(update_fields=["password"])
+        user.set_password(password)
+        user.save(update_fields=["password"])
         return user
