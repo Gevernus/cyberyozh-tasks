@@ -1,22 +1,42 @@
-FROM python:3.12-slim
+# syntax=docker/dockerfile:1
+
+# --- builder: resolve and build every dependency into wheels -----------------
+FROM python:3.12-slim AS builder
+
+ENV PIP_NO_CACHE_DIR=1 \
+    PIP_DISABLE_PIP_VERSION_CHECK=1
+
+COPY requirements.txt /tmp/requirements.txt
+RUN pip wheel --wheel-dir /wheels --requirement /tmp/requirements.txt
+
+# --- runtime: wheels + code, no compilers, no dev dependencies --------------
+FROM python:3.12-slim AS runtime
 
 ENV PYTHONDONTWRITEBYTECODE=1 \
     PYTHONUNBUFFERED=1 \
     PIP_NO_CACHE_DIR=1 \
     PIP_DISABLE_PIP_VERSION_CHECK=1
 
+RUN groupadd --system --gid 10001 app \
+    && useradd --system --uid 10001 --gid app --no-create-home app
+
 WORKDIR /app
 
 COPY requirements.txt .
-RUN pip install -r requirements.txt
+RUN --mount=type=bind,from=builder,source=/wheels,target=/wheels \
+    pip install --no-index --find-links=/wheels --requirement requirements.txt
 
+# Code and static files stay owned by root: the app user can read but not modify them.
 COPY . .
-RUN DJANGO_SECRET_KEY=collectstatic-only DJANGO_DEBUG=False \
-    python manage.py collectstatic --noinput \
-    && useradd --create-home --uid 1000 app \
-    && chown -R app:app /app
+RUN DJANGO_DEBUG=False DJANGO_SECRET_KEY=collectstatic-only \
+    python manage.py collectstatic --noinput
+
 USER app
 
 EXPOSE 8000
 
-CMD ["sh", "-c", "python manage.py migrate --noinput && gunicorn config.wsgi:application --bind 0.0.0.0:8000 --workers 3"]
+HEALTHCHECK --interval=30s --timeout=5s --start-period=30s --retries=3 \
+    CMD ["python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8000/api/health/', timeout=4)"]
+
+ENTRYPOINT ["/app/docker/entrypoint.sh"]
+CMD ["gunicorn", "--config", "gunicorn.conf.py", "config.wsgi"]

@@ -1,30 +1,46 @@
 services:
   db:
     image: postgres:17-alpine
+    restart: unless-stopped
     environment:
-      POSTGRES_DB: tasks
-      POSTGRES_USER: tasks
-      POSTGRES_PASSWORD: tasks
+      POSTGRES_DB: ${POSTGRES_DB:-tasks}
+      POSTGRES_USER: ${POSTGRES_USER:-tasks}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?set POSTGRES_PASSWORD in .env}
     volumes:
       - postgres_data:/var/lib/postgresql/data
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U tasks -d tasks"]
+      test: ["CMD-SHELL", "pg_isready -U \"$$POSTGRES_USER\" -d \"$$POSTGRES_DB\""]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  redis:
+    image: redis:7-alpine
+    restart: unless-stopped
+    # Holds only throttle counters: no persistence, bounded memory.
+    command: redis-server --save "" --appendonly no --maxmemory 64mb --maxmemory-policy allkeys-lru
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
       interval: 5s
       timeout: 5s
       retries: 10
 
   web:
     build: .
+    restart: unless-stopped
+    env_file: .env
     environment:
-      DJANGO_SECRET_KEY: ${DJANGO_SECRET_KEY:-change-me-in-production}
-      DJANGO_DEBUG: ${DJANGO_DEBUG:-False}
-      DJANGO_ALLOWED_HOSTS: ${DJANGO_ALLOWED_HOSTS:-localhost,127.0.0.1}
-      DATABASE_URL: postgres://tasks:tasks@db:5432/tasks
+      DATABASE_URL: postgres://${POSTGRES_USER:-tasks}:${POSTGRES_PASSWORD:?set POSTGRES_PASSWORD in .env}@db:5432/${POSTGRES_DB:-tasks}
+      REDIS_URL: redis://redis:6379/0
     ports:
-      - "8000:8000"
+      - "${HTTP_PORT:-8000}:8000"
     depends_on:
       db:
         condition: service_healthy
+      redis:
+        condition: service_healthy
+    # Longer than gunicorn's graceful_timeout so in-flight requests can finish.
+    stop_grace_period: 40s
 
 volumes:
   postgres_data:

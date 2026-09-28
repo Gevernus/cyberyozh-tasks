@@ -1,4 +1,5 @@
 .git
+.github
 .venv
 venv
 __pycache__
@@ -6,7 +7,14 @@ __pycache__
 .pytest_cache
 .ruff_cache
 .coverage
+coverage.xml
 htmlcov
 db.sqlite3
 staticfiles
 .env
+tests
+requirements-dev.txt
+docker-compose.yml
+Dockerfile
+.dockerignore
+*.md
