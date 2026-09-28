@@ -23,6 +23,10 @@ def env_bool(name: str, default: bool) -> bool:
     return value.strip().lower() in {"1", "true", "yes", "on"}
 
 
+def env_int(name: str, default: int) -> int:
+    return int(os.environ.get(name) or default)
+
+
 def env_list(name: str, default: str) -> list[str]:
     return [item.strip() for item in os.environ.get(name, default).split(",") if item.strip()]
 
@@ -87,7 +91,9 @@ WSGI_APPLICATION = "config.wsgi.application"
 DATABASES = {
     "default": dj_database_url.config(
         default=f"sqlite:///{BASE_DIR / 'db.sqlite3'}",
-        conn_max_age=600,
+        # A persistent connection is held per gunicorn thread: workers * threads
+        # connections in total must stay below PostgreSQL's max_connections.
+        conn_max_age=env_int("DJANGO_CONN_MAX_AGE", 60),
         conn_health_checks=True,
     )
 }
@@ -151,4 +157,31 @@ SPECTACULAR_SETTINGS = {
     "COMPONENT_SPLIT_REQUEST": True,
     "SCHEMA_PATH_PREFIX": r"/api/",
     "SWAGGER_UI_SETTINGS": {"persistAuthorization": True},
+}
+
+# --- Logging ---------------------------------------------------------------
+# Everything goes to stdout for the container runtime to collect. Django's default
+# handlers are dropped: with DEBUG off they only mail ADMINS, so 500s were invisible.
+LOG_LEVEL = os.environ.get("DJANGO_LOG_LEVEL", "INFO").upper()
+
+LOGGING = {
+    "version": 1,
+    "disable_existing_loggers": False,
+    "formatters": {
+        "plain": {"format": "%(asctime)s %(levelname)s %(name)s %(process)d %(message)s"},
+    },
+    "handlers": {
+        "console": {
+            "class": "logging.StreamHandler",
+            "stream": "ext://sys.stdout",
+            "formatter": "plain",
+        },
+    },
+    "root": {"handlers": ["console"], "level": LOG_LEVEL},
+    "loggers": {
+        "django": {"handlers": [], "level": LOG_LEVEL, "propagate": True},
+        # 5xx with tracebacks; 4xx are already in the gunicorn access log.
+        "django.request": {"level": "ERROR"},
+        "django.security": {"level": "WARNING"},
+    },
 }
