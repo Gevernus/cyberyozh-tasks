@@ -79,7 +79,11 @@ class TaskViewSet(viewsets.ModelViewSet):
         request=TaskAssignSerializer,
         responses={status.HTTP_200_OK: TaskSerializer},
     )
-    @action(detail=True, methods=["post"])
+    @action(
+        detail=True,
+        methods=["post"],
+        permission_classes=[IsAuthenticated, IsAuthorOrReadOnly],
+    )
     def assign(self, request: Request, pk=None) -> Response:
         task = self.get_object()
         serializer = TaskAssignSerializer(data=request.data)
