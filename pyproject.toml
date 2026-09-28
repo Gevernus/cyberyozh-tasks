@@ -11,6 +11,8 @@ extend-exclude = ["*/migrations/*"]
 
 [tool.ruff.lint]
 select = ["E", "W", "F", "I", "B", "UP", "DJ", "SIM", "N", "C4", "RUF"]
+# Django/DRF declare configuration as mutable class attributes by design.
+ignore = ["RUF012"]
 
 [tool.ruff.lint.isort]
 known-first-party = ["apps", "config", "tests"]
@@ -20,6 +22,10 @@ DJANGO_SETTINGS_MODULE = "config.settings"
 python_files = ["test_*.py"]
 testpaths = ["tests"]
 addopts = "-ra --strict-markers"
+filterwarnings = [
+    # Tests run without collectstatic; WhiteNoise only warns about the missing folder.
+    "ignore:No directory at:UserWarning",
+]
 
 [tool.coverage.run]
 source = ["apps", "config"]
