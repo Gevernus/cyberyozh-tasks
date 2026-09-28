@@ -46,7 +46,12 @@ class TaskViewSet(viewsets.ModelViewSet):
         # Re-read through get_queryset so annotated fields stay present.
         return Response(self.get_serializer(self.get_queryset().get(pk=task.pk)).data)
 
-    @extend_schema(summary="Mark a task as completed", request=None, responses=TaskSerializer)
+    @extend_schema(
+        summary="Mark a task as completed",
+        description="Allowed for the task author and assignee. Sets `completed_at`.",
+        request=None,
+        responses=TaskSerializer,
+    )
     @action(
         detail=True,
         methods=["post"],
@@ -59,7 +64,12 @@ class TaskViewSet(viewsets.ModelViewSet):
         task.mark_completed()
         return self._task_response(task)
 
-    @extend_schema(summary="Reopen a completed task", request=None, responses=TaskSerializer)
+    @extend_schema(
+        summary="Reopen a completed task",
+        description="Allowed for the task author and assignee. Resets status to `todo`.",
+        request=None,
+        responses=TaskSerializer,
+    )
     @action(
         detail=True,
         methods=["post"],
@@ -74,6 +84,7 @@ class TaskViewSet(viewsets.ModelViewSet):
 
     @extend_schema(
         summary="Assign a task to a user (author only)",
+        description="Pass `assignee_id: null` to unassign the task.",
         request=TaskAssignSerializer,
         responses={status.HTTP_200_OK: TaskSerializer},
     )
