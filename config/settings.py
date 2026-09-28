@@ -210,8 +210,8 @@ if env_bool("DJANGO_SECURE_PROXY_SSL_HEADER", default=False):
 # in front of the app.
 if env_bool("DJANGO_SECURE_HTTPS", default=False):
     SECURE_SSL_REDIRECT = True
-    # The container healthcheck talks plain HTTP to localhost.
-    SECURE_REDIRECT_EXEMPT = [r"^api/health/$"]
+    # Health checks from the container and the host talk plain HTTP to localhost.
+    SECURE_REDIRECT_EXEMPT = [r"^api/health/(live/)?$"]
     SESSION_COOKIE_SECURE = True
     CSRF_COOKIE_SECURE = True
     SECURE_HSTS_SECONDS = env_int("DJANGO_SECURE_HSTS_SECONDS", 31_536_000)

@@ -7,16 +7,6 @@ from rest_framework import status
 pytestmark = pytest.mark.django_db
 
 
-@pytest.fixture
-def unreachable_cache(settings):
-    settings.CACHES = {
-        "default": {
-            "BACKEND": "django.core.cache.backends.redis.RedisCache",
-            "LOCATION": "redis://127.0.0.1:1/0",
-        }
-    }
-
-
 @pytest.mark.parametrize("url_name", ["auth-register", "token-obtain-pair", "token-refresh"])
 def test_auth_endpoints_are_rate_limited(api_client, throttle_rates, url_name):
     throttle_rates(auth="2/min")

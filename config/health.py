@@ -24,28 +24,54 @@ def check_cache() -> None:
 
 CHECKS: dict[str, Callable[[], None]] = {"database": check_database, "cache": check_cache}
 
+# Only throttling depends on the cache, and it fails open without it.
+OPTIONAL_CHECKS = frozenset({"cache"})
+
+
+class LivenessSerializer(serializers.Serializer):
+    status = serializers.CharField(help_text="Always `ok`.")
+
 
 class HealthSerializer(serializers.Serializer):
-    status = serializers.CharField(help_text="`ok` or `error`.")
+    status = serializers.CharField(
+        help_text="`ok`, `degraded` (an optional dependency is down) or `error`."
+    )
     checks = serializers.DictField(
         child=serializers.CharField(), help_text="Per-dependency result, `ok` or `error`."
     )
 
 
+class PublicView(APIView):
+    authentication_classes = []
+    permission_classes = [AllowAny]
+    throttle_classes = []
+
+
 @extend_schema(
     tags=["health"],
-    summary="Health check",
-    description="Checks the database and the cache. Public, not throttled.",
+    summary="Liveness check",
+    description="The process serves requests. Touches no dependencies. Public, not throttled.",
+    responses={status.HTTP_200_OK: LivenessSerializer},
+)
+class LivenessView(PublicView):
+    def get(self, request: Request) -> Response:
+        return Response({"status": "ok"})
+
+
+@extend_schema(
+    tags=["health"],
+    summary="Readiness check",
+    description=(
+        "Checks the database and the cache. `503` when the database is unavailable; "
+        "without the cache the API still works, without rate limits, and the status "
+        "is `degraded`. Public, not throttled."
+    ),
     responses={
         status.HTTP_200_OK: HealthSerializer,
         status.HTTP_503_SERVICE_UNAVAILABLE: HealthSerializer,
     },
 )
-class HealthView(APIView):
-    authentication_classes = []
-    permission_classes = [AllowAny]
-    throttle_classes = []
-
+class ReadinessView(PublicView):
     def get(self, request: Request) -> Response:
         results = {}
         for name, check in CHECKS.items():
@@ -57,8 +83,11 @@ class HealthView(APIView):
             else:
                 results[name] = "ok"
 
-        healthy = all(result == "ok" for result in results.values())
-        return Response(
-            {"status": "ok" if healthy else "error", "checks": results},
-            status=status.HTTP_200_OK if healthy else status.HTTP_503_SERVICE_UNAVAILABLE,
-        )
+        failed = {name for name, result in results.items() if result == "error"}
+        if failed - OPTIONAL_CHECKS:
+            overall, code = "error", status.HTTP_503_SERVICE_UNAVAILABLE
+        elif failed:
+            overall, code = "degraded", status.HTTP_200_OK
+        else:
+            overall, code = "ok", status.HTTP_200_OK
+        return Response({"status": overall, "checks": results}, status=code)

@@ -14,7 +14,7 @@ REST API системы управления задачами на Django + Djan
 - Фильтры, поиск, сортировка и пагинация списка задач.
 - Регистрация и JWT-аутентификация (`djangorestframework-simplejwt`).
 - OpenAPI-схема, Swagger UI и Redoc (`drf-spectacular`).
-- 84 теста на pytest, покрытие 97%, включая тест гонки `complete`/`reopen` на PostgreSQL.
+- 101 тест на pytest, покрытие 98%, включая тест гонки `complete`/`reopen` на PostgreSQL.
 - SQLite по умолчанию, PostgreSQL через `DATABASE_URL`.
 - Продакшен-обвязка: многоэтапный Dockerfile (gunicorn, non-root), Docker Compose
   с PostgreSQL и Redis, логи в stdout, health-check, троттлинг, настройки безопасности, CI.
@@ -78,7 +78,7 @@ SQLite и кэш в памяти процесса. Админка по умол�
 cp .env.example .env    # заменить все change-me: DJANGO_SECRET_KEY и POSTGRES_PASSWORD
 docker compose up --build -d
 docker compose exec web python manage.py seed_demo          # демо-данные, только на закрытом стенде
-docker compose exec web python manage.py createsuperuser    # если нужна админка
+docker compose exec web python manage.py createsuperuser    # если нужна админка (DJANGO_ADMIN_ENABLED=1)
 ```
 
 API будет доступно на http://localhost:8000/api/docs/ (порт меняется через `HTTP_PORT`).
@@ -186,7 +186,8 @@ curl -X POST http://127.0.0.1:8000/api/auth/token/refresh/ \
 | `POST /api/tasks/{id}/reopen/` | вернуть в работу |
 | `GET, POST /api/tasks/{id}/comments/` | комментарии задачи |
 | `GET, PUT, PATCH, DELETE /api/tasks/{id}/comments/{comment_id}/` | комментарий |
-| `GET /api/health/` | состояние сервиса и зависимостей, без аутентификации |
+| `GET /api/health/` | готовность: состояние БД и кэша, без аутентификации |
+| `GET /api/health/live/` | живость процесса, без обращения к зависимостям |
 
 ### Модель задачи
 
@@ -261,10 +262,23 @@ curl -X POST http://127.0.0.1:8000/api/auth/token/refresh/ \
 
 ### Health-check
 
-`GET /api/health/` без аутентификации и троттлинга выполняет `SELECT 1` в БД и запрос
-в кэш. Ответ `200 {"status": "ok", "checks": {...}}` или `503` с указанием упавшей
-зависимости; подробности ошибки только в логе. Его вызывает `HEALTHCHECK` образа;
-при `DJANGO_SECURE_HTTPS=1` путь исключён из редиректа на HTTPS.
+Два эндпоинта без аутентификации и троттлинга:
+
+- `GET /api/health/live/` — liveness: процесс принимает запросы, зависимости не
+  проверяются, всегда `200 {"status": "ok"}`. Его вызывает `HEALTHCHECK` образа и по нему
+  ждёт `docker compose up --wait`: авария БД или Redis не лечится перезапуском
+  контейнера, поэтому она не должна делать его `unhealthy`.
+- `GET /api/health/` — readiness, для балансировщика и мониторинга: `SELECT 1` в БД и
+  запрос в кэш. Ответ `{"status": ..., "checks": {"database": ..., "cache": ...}}`:
+  - `200 ok` — всё доступно;
+  - `200 degraded` — недоступен Redis: API работает, но без лимитов запросов (см.
+    «Троттлинг»), трафик с инстанса снимать не нужно;
+  - `503 error` — недоступна БД, инстанс запросы обслуживать не может.
+
+Наружу отдаются только `ok`/`degraded`/`error`, подробности ошибки — в логе. При
+`DJANGO_SECURE_HTTPS=1` оба пути исключены из редиректа на HTTPS. Readiness каждый раз
+ходит в БД и Redis, поэтому если он опубликован наружу, а не только для балансировщика,
+его имеет смысл закрыть на прокси.
 
 ### Троттлинг
 
@@ -280,7 +294,8 @@ curl -X POST http://127.0.0.1:8000/api/auth/token/refresh/ \
 - При недоступности Redis троттлинг пропускает запросы (fail-open, `config/throttling.py`):
   API продолжает работать, но **лимиты на время аварии не действуют**, включая лимит на
   подбор паролей. Это осознанный выбор: доступность сервиса важнее лимитов, а авария кэша
-  видна сразу — каждый пропущенный лимит пишет `WARNING` в лог. Перехватываются только ошибки Redis (`RedisError`), остальные исключения
+  видна сразу — каждый пропущенный лимит пишет `WARNING` в лог, readiness отвечает
+  `degraded`. Перехватываются только ошибки Redis (`RedisError`), остальные исключения
   не глотаются. Если Redis не отвечает, а не отказывает в соединении, каждый запрос
   дольше на таймаут сокета (2 с на обращение к кэшу).
 - IP клиента берётся из адреса соединения (`NUM_PROXIES=0`). За прокси укажите число
@@ -337,8 +352,8 @@ DATABASE_URL=postgres://localhost:5432/tasks pytest
 
 Тесты покрывают регистрацию и JWT, CRUD задач, права доступа, `complete`/`reopen`,
 назначение исполнителя, комментарии, фильтры, поиск и сортировку, модели, `seed_demo`,
-троттлинг, health-check и генерацию OpenAPI-схемы (тест падает на любом предупреждении
-drf-spectacular).
+троттлинг (в том числе при недоступном Redis), health-check, включение админки и
+генерацию OpenAPI-схемы (тест падает на любом предупреждении drf-spectacular).
 
 Тест гонки (`tests/test_concurrency.py`) запускает два одновременных `complete`
 (и `reopen`) из разных потоков: запрос, прошедший проверку статуса, ждёт второй на
@@ -351,7 +366,8 @@ drf-spectacular).
 `.github/workflows/ci.yml`: `ruff check` и `ruff format --check`; `manage.py check`,
 `makemigrations --check`, валидация OpenAPI-схемы, `check --deploy` с продакшен-настройками;
 pytest с покрытием на PostgreSQL-сервисе (тест гонки выполняется); сборка образа и
-запуск всего compose-стека с проверкой `/api/health/`.
+запуск всего compose-стека: `--wait` ждёт liveness контейнера, затем проверяется, что
+readiness отвечает `ok`.
 
 ## Возможные доработки
 

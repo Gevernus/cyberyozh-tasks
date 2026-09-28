@@ -33,6 +33,17 @@ def throttle_rates(monkeypatch):
 
 
 @pytest.fixture
+def unreachable_cache(settings):
+    """A Redis cache nobody listens on: every call raises redis ConnectionError."""
+    settings.CACHES = {
+        "default": {
+            "BACKEND": "django.core.cache.backends.redis.RedisCache",
+            "LOCATION": "redis://127.0.0.1:1/0",
+        }
+    }
+
+
+@pytest.fixture
 def api_client() -> APIClient:
     return APIClient()
 
