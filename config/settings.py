@@ -155,11 +155,12 @@ REST_FRAMEWORK = {
     ],
     "DEFAULT_PAGINATION_CLASS": "config.pagination.DefaultPagination",
     "PAGE_SIZE": 20,
+    # Fail open: while the cache is unreachable requests pass without rate limits.
     "DEFAULT_THROTTLE_CLASSES": [
-        "rest_framework.throttling.AnonRateThrottle",
-        "rest_framework.throttling.UserRateThrottle",
+        "config.throttling.AnonRateThrottle",
+        "config.throttling.UserRateThrottle",
         # Applies only to views that declare a throttle_scope.
-        "rest_framework.throttling.ScopedRateThrottle",
+        "config.throttling.ScopedRateThrottle",
     ],
     "DEFAULT_THROTTLE_RATES": {
         "anon": os.environ.get("THROTTLE_ANON_RATE", "100/hour"),

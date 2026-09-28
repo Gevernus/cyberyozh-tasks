@@ -1,8 +1,20 @@
+import logging
+
 import pytest
 from django.urls import reverse
 from rest_framework import status
 
 pytestmark = pytest.mark.django_db
+
+
+@pytest.fixture
+def unreachable_cache(settings):
+    settings.CACHES = {
+        "default": {
+            "BACKEND": "django.core.cache.backends.redis.RedisCache",
+            "LOCATION": "redis://127.0.0.1:1/0",
+        }
+    }
 
 
 @pytest.mark.parametrize("url_name", ["auth-register", "token-obtain-pair", "token-refresh"])
@@ -64,3 +76,25 @@ def test_anonymous_requests_are_limited(api_client, throttle_rates):
 
     assert api_client.get(url).status_code == status.HTTP_200_OK
     assert api_client.get(url).status_code == status.HTTP_429_TOO_MANY_REQUESTS
+
+
+@pytest.mark.usefixtures("unreachable_cache")
+def test_requests_pass_unthrottled_when_the_cache_is_down(
+    api_client, auth_client, throttle_rates, caplog
+):
+    throttle_rates(anon="1/min", user="1/min", auth="1/min")
+    token_url = reverse("token-obtain-pair")
+    wrong_credentials = {"username": "nobody", "password": "wrong"}
+
+    tasks = [auth_client.get(reverse("task-list")).status_code for _ in range(2)]
+    schema = [api_client.get(reverse("schema")).status_code for _ in range(2)]
+    tokens = [api_client.post(token_url, wrong_credentials).status_code for _ in range(2)]
+
+    assert tasks == [200, 200]
+    assert schema == [200, 200]
+    assert tokens == [401, 401]
+    assert {
+        record.getMessage().split(" skipped")[0]
+        for record in caplog.records
+        if record.name == "config.throttling" and record.levelno == logging.WARNING
+    } == {"AnonRateThrottle", "UserRateThrottle", "ScopedRateThrottle"}
