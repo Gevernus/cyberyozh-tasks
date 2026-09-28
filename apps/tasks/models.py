@@ -1,6 +1,10 @@
 from django.conf import settings
-from django.db import models
+from django.db import models, transaction
 from django.utils import timezone
+
+
+class StatusTransitionError(Exception):
+    """The requested status change does not apply to the task's current state."""
 
 
 class Task(models.Model):
@@ -62,13 +66,26 @@ class Task(models.Model):
     def is_completed(self) -> bool:
         return self.status == self.Status.DONE
 
-    def mark_completed(self) -> None:
-        self.status = self.Status.DONE
-        self.save(update_fields=["status", "updated_at"])
+    def complete(self) -> None:
+        with transaction.atomic():
+            self._refresh_locked()
+            if self.is_completed:
+                raise StatusTransitionError("Task is already completed.")
+            self.status = self.Status.DONE
+            self.save(update_fields=["status", "updated_at"])
 
     def reopen(self) -> None:
-        self.status = self.Status.TODO
-        self.save(update_fields=["status", "updated_at"])
+        with transaction.atomic():
+            self._refresh_locked()
+            if not self.is_completed:
+                raise StatusTransitionError("Task is not completed.")
+            self.status = self.Status.TODO
+            self.save(update_fields=["status", "updated_at"])
+
+    def _refresh_locked(self) -> None:
+        # Check the state as committed, holding the row lock until the transaction
+        # ends, so concurrent complete/reopen calls on one task run one after another.
+        self.refresh_from_db(from_queryset=Task.objects.select_for_update())
 
 
 class Comment(models.Model):

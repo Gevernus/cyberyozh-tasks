@@ -1,3 +1,4 @@
+from collections.abc import Callable
 from functools import cached_property
 
 from django.db.models import Count
@@ -11,7 +12,7 @@ from rest_framework.request import Request
 from rest_framework.response import Response
 
 from .filters import TaskFilter
-from .models import Comment, Task
+from .models import Comment, StatusTransitionError, Task
 from .permissions import IsAuthorOrReadOnly, IsTaskAuthorOrAssignee
 from .serializers import CommentSerializer, TaskAssignSerializer, TaskSerializer
 
@@ -56,11 +57,7 @@ class TaskViewSet(viewsets.ModelViewSet):
         permission_classes=[IsAuthenticated, IsTaskAuthorOrAssignee],
     )
     def complete(self, request: Request, pk=None) -> Response:
-        task = self.get_object()
-        if task.is_completed:
-            raise ValidationError({"status": "Task is already completed."})
-        task.mark_completed()
-        return Response(self.get_serializer(task).data)
+        return self._change_status(Task.complete)
 
     @extend_schema(
         summary="Reopen a completed task",
@@ -74,11 +71,7 @@ class TaskViewSet(viewsets.ModelViewSet):
         permission_classes=[IsAuthenticated, IsTaskAuthorOrAssignee],
     )
     def reopen(self, request: Request, pk=None) -> Response:
-        task = self.get_object()
-        if not task.is_completed:
-            raise ValidationError({"status": "Task is not completed."})
-        task.reopen()
-        return Response(self.get_serializer(task).data)
+        return self._change_status(Task.reopen)
 
     @extend_schema(
         summary="Assign a task to a user (author only)",
@@ -93,6 +86,14 @@ class TaskViewSet(viewsets.ModelViewSet):
         serializer.is_valid(raise_exception=True)
         task.assignee = serializer.validated_data["assignee_id"]
         task.save(update_fields=["assignee", "updated_at"])
+        return Response(self.get_serializer(task).data)
+
+    def _change_status(self, transition: Callable[[Task], None]) -> Response:
+        task = self.get_object()
+        try:
+            transition(task)
+        except StatusTransitionError as exc:
+            raise ValidationError({"status": str(exc)}) from exc
         return Response(self.get_serializer(task).data)
 
 

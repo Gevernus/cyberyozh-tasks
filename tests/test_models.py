@@ -1,6 +1,6 @@
 import pytest
 
-from apps.tasks.models import Task
+from apps.tasks.models import StatusTransitionError, Task
 from tests.factories import CommentFactory, TaskFactory, UserFactory
 
 pytestmark = pytest.mark.django_db
@@ -16,10 +16,10 @@ def test_new_task_defaults():
     assert str(task) == task.title
 
 
-def test_mark_completed_sets_completed_at():
+def test_complete_sets_completed_at():
     task = TaskFactory()
 
-    task.mark_completed()
+    task.complete()
     task.refresh_from_db()
 
     assert task.is_completed
@@ -66,3 +66,25 @@ def test_deleting_task_deletes_comments():
     comment.task.delete()
 
     assert not type(comment).objects.filter(pk=comment.pk).exists()
+
+
+def test_complete_rejects_completed_task():
+    task = TaskFactory(status=Task.Status.DONE)
+
+    with pytest.raises(StatusTransitionError):
+        task.complete()
+
+
+def test_reopen_rejects_open_task():
+    task = TaskFactory()
+
+    with pytest.raises(StatusTransitionError):
+        task.reopen()
+
+
+def test_status_change_checks_the_stored_state_not_a_stale_instance():
+    task = TaskFactory()
+    Task.objects.filter(pk=task.pk).update(status=Task.Status.DONE)
+
+    with pytest.raises(StatusTransitionError):
+        task.complete()
