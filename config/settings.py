@@ -27,7 +27,7 @@ def env_int(name: str, default: int) -> int:
     return int(os.environ.get(name) or default)
 
 
-def env_list(name: str, default: str) -> list[str]:
+def env_list(name: str, default: str = "") -> list[str]:
     return [item.strip() for item in os.environ.get(name, default).split(",") if item.strip()]
 
 
@@ -40,6 +40,7 @@ if not SECRET_KEY:
     SECRET_KEY = "django-insecure-local-development-key"
 
 ALLOWED_HOSTS = env_list("DJANGO_ALLOWED_HOSTS", "localhost,127.0.0.1")
+CSRF_TRUSTED_ORIGINS = env_list("DJANGO_CSRF_TRUSTED_ORIGINS")
 
 INSTALLED_APPS = [
     "django.contrib.admin",
@@ -188,6 +189,29 @@ SPECTACULAR_SETTINGS = {
     "SCHEMA_PATH_PREFIX": r"/api/",
     "SWAGGER_UI_SETTINGS": {"persistAuthorization": True},
 }
+
+# --- Security --------------------------------------------------------------
+# Django's defaults, pinned so the policy is visible in one place.
+SECURE_CONTENT_TYPE_NOSNIFF = True
+SECURE_REFERRER_POLICY = "same-origin"
+X_FRAME_OPTIONS = "DENY"
+SESSION_COOKIE_HTTPONLY = True
+
+if env_bool("DJANGO_SECURE_PROXY_SSL_HEADER", default=False):
+    # Only safe behind a proxy that always overwrites X-Forwarded-Proto.
+    SECURE_PROXY_SSL_HEADER = ("HTTP_X_FORWARDED_PROTO", "https")
+
+# Off by default: the compose setup serves plain HTTP. Turn on once TLS terminates
+# in front of the app.
+if env_bool("DJANGO_SECURE_HTTPS", default=False):
+    SECURE_SSL_REDIRECT = True
+    # The container healthcheck talks plain HTTP to localhost.
+    SECURE_REDIRECT_EXEMPT = [r"^api/health/$"]
+    SESSION_COOKIE_SECURE = True
+    CSRF_COOKIE_SECURE = True
+    SECURE_HSTS_SECONDS = env_int("DJANGO_SECURE_HSTS_SECONDS", 31_536_000)
+    SECURE_HSTS_INCLUDE_SUBDOMAINS = env_bool("DJANGO_SECURE_HSTS_INCLUDE_SUBDOMAINS", False)
+    SECURE_HSTS_PRELOAD = env_bool("DJANGO_SECURE_HSTS_PRELOAD", False)
 
 # --- Logging ---------------------------------------------------------------
 # Everything goes to stdout for the container runtime to collect. Django's default
