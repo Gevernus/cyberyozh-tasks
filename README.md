@@ -66,10 +66,11 @@ python manage.py runserver
 | Swagger UI | http://127.0.0.1:8000/api/docs/ |
 | Redoc | http://127.0.0.1:8000/api/redoc/ |
 | OpenAPI-схема | http://127.0.0.1:8000/api/schema/ |
-| Админка | http://127.0.0.1:8000/admin/ |
+| Админка (при `DEBUG`) | http://127.0.0.1:8000/admin/ |
 
 Локально переменные окружения не нужны: по умолчанию включён `DEBUG`, используется
-SQLite и кэш в памяти процесса.
+SQLite и кэш в памяти процесса. Админка по умолчанию подключена только при `DEBUG`,
+см. «Безопасность».
 
 ## Запуск через Docker Compose
 
@@ -77,7 +78,7 @@ SQLite и кэш в памяти процесса.
 cp .env.example .env    # заменить все change-me: DJANGO_SECRET_KEY и POSTGRES_PASSWORD
 docker compose up --build -d
 docker compose exec web python manage.py seed_demo          # демо-данные, только на закрытом стенде
-docker compose exec web python manage.py createsuperuser    # админ
+docker compose exec web python manage.py createsuperuser    # если нужна админка
 ```
 
 API будет доступно на http://localhost:8000/api/docs/ (порт меняется через `HTTP_PORT`).
@@ -100,7 +101,9 @@ compose не стартует. Миграции применяются при с
 | `DJANGO_DEBUG` | `True` | режим отладки |
 | `DJANGO_SECRET_KEY` | ключ для разработки | обязателен при `DJANGO_DEBUG=False` |
 | `DJANGO_ALLOWED_HOSTS` | `localhost,127.0.0.1` | список через запятую; `localhost` нужен healthcheck контейнера |
-| `DJANGO_CSRF_TRUSTED_ORIGINS` | пусто | например `https://tasks.example.com`, нужно для `/admin/` по HTTPS |
+| `DJANGO_CSRF_TRUSTED_ORIGINS` | пусто | например `https://tasks.example.com`, нужно для админки по HTTPS |
+| `DJANGO_ADMIN_ENABLED` | как `DJANGO_DEBUG` | подключить админку; в продакшене по умолчанию выключена |
+| `DJANGO_ADMIN_URL` | `admin/` | путь админки |
 | `DATABASE_URL` | `sqlite:///db.sqlite3` | например `postgres://user:pass@host:5432/db`; в compose собирается сам |
 | `DJANGO_CONN_MAX_AGE` | `60` | время жизни постоянного соединения с БД, секунды |
 | `REDIS_URL` | пусто (кэш в памяти) | например `redis://redis:6379/0`; в compose задан |
@@ -297,6 +300,11 @@ curl -X POST http://127.0.0.1:8000/api/auth/token/refresh/ \
 - При `DJANGO_DEBUG=False` обязателен `DJANGO_SECRET_KEY`, иначе приложение не стартует.
 - Всегда: `X-Content-Type-Options: nosniff`, `X-Frame-Options: DENY`,
   `Referrer-Policy: same-origin`, HttpOnly-cookie сессии.
+- Админка подключается только при `DJANGO_ADMIN_ENABLED=1` (по умолчанию — только при
+  `DEBUG`), иначе её URL отдают `404`. У формы входа нет ограничения попыток, поэтому
+  в продакшене её стоит включать только за HTTPS и VPN или списком IP на прокси,
+  с неочевидным путём в `DJANGO_ADMIN_URL`. Через неё же работает вход в browsable API
+  (session-аутентификация); без админки API доступно по JWT, в том числе из Swagger UI.
 - `DJANGO_SECURE_HTTPS=1` включает редирект на HTTPS, secure-cookie и HSTS.
   По умолчанию выключено, потому что compose отдаёт приложение по HTTP.
 - За TLS-терминатором (nginx, балансировщик облака): `DJANGO_SECURE_HTTPS=1`,

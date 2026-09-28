@@ -42,6 +42,10 @@ if not SECRET_KEY:
 ALLOWED_HOSTS = env_list("DJANGO_ALLOWED_HOSTS", "localhost,127.0.0.1")
 CSRF_TRUSTED_ORIGINS = env_list("DJANGO_CSRF_TRUSTED_ORIGINS")
 
+# The admin login has no rate limit, so in production it is off unless asked for.
+ADMIN_ENABLED = env_bool("DJANGO_ADMIN_ENABLED", default=DEBUG)
+ADMIN_URL = (os.environ.get("DJANGO_ADMIN_URL", "").strip("/") or "admin") + "/"
+
 INSTALLED_APPS = [
     "django.contrib.admin",
     "django.contrib.auth",
@@ -140,7 +144,7 @@ DEFAULT_AUTO_FIELD = "django.db.models.BigAutoField"
 REST_FRAMEWORK = {
     "DEFAULT_AUTHENTICATION_CLASSES": [
         "rest_framework_simplejwt.authentication.JWTAuthentication",
-        # Session auth keeps the browsable API usable after logging in via /admin/.
+        # Session auth keeps the browsable API usable after logging in to the admin.
         "rest_framework.authentication.SessionAuthentication",
     ],
     "DEFAULT_PERMISSION_CLASSES": ["rest_framework.permissions.IsAuthenticated"],
