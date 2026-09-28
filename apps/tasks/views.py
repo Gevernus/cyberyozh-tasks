@@ -1,4 +1,7 @@
+from functools import cached_property
+
 from django.db.models import Count
+from django.shortcuts import get_object_or_404
 from drf_spectacular.utils import extend_schema, extend_schema_view
 from rest_framework import status, viewsets
 from rest_framework.decorators import action
@@ -8,9 +11,9 @@ from rest_framework.request import Request
 from rest_framework.response import Response
 
 from .filters import TaskFilter
-from .models import Task
+from .models import Comment, Task
 from .permissions import IsAuthorOrReadOnly, IsTaskAuthorOrAssignee
-from .serializers import TaskAssignSerializer, TaskSerializer
+from .serializers import CommentSerializer, TaskAssignSerializer, TaskSerializer
 
 
 @extend_schema_view(
@@ -82,3 +85,32 @@ class TaskViewSet(viewsets.ModelViewSet):
         task.assignee = serializer.validated_data["assignee_id"]
         task.save(update_fields=["assignee", "updated_at"])
         return self._task_response(task)
+
+
+@extend_schema_view(
+    list=extend_schema(summary="List comments of a task"),
+    retrieve=extend_schema(summary="Get a comment"),
+    create=extend_schema(summary="Comment on a task"),
+    update=extend_schema(summary="Replace a comment (comment author only)"),
+    partial_update=extend_schema(summary="Edit a comment (comment author only)"),
+    destroy=extend_schema(summary="Delete a comment (comment author only)"),
+)
+@extend_schema(tags=["comments"])
+class CommentViewSet(viewsets.ModelViewSet):
+    """Comments nested under a task: /api/tasks/{task_pk}/comments/."""
+
+    serializer_class = CommentSerializer
+    permission_classes = [IsAuthenticated, IsAuthorOrReadOnly]
+    filter_backends = []
+
+    @cached_property
+    def task(self) -> Task:
+        return get_object_or_404(Task, pk=self.kwargs["task_pk"])
+
+    def get_queryset(self):
+        if getattr(self, "swagger_fake_view", False):  # schema generation, no URL kwargs
+            return Comment.objects.none()
+        return self.task.comments.select_related("author")
+
+    def perform_create(self, serializer):
+        serializer.save(task=self.task, author=self.request.user)

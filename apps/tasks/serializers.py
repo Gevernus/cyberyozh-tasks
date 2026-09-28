@@ -3,7 +3,7 @@ from rest_framework import serializers
 
 from apps.accounts.serializers import UserSerializer
 
-from .models import Task
+from .models import Comment, Task
 
 User = get_user_model()
 
@@ -45,3 +45,12 @@ class TaskSerializer(serializers.ModelSerializer):
 
 class TaskAssignSerializer(serializers.Serializer):
     assignee_id = AssigneeField(help_text="User id, or null to unassign the task.")
+
+
+class CommentSerializer(serializers.ModelSerializer):
+    author = UserSerializer(read_only=True)
+
+    class Meta:
+        model = Comment
+        fields = ["id", "task", "author", "text", "created_at", "updated_at"]
+        read_only_fields = ["task", "created_at", "updated_at"]
