@@ -1,0 +1,85 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  lint:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-python@v6
+        with:
+          python-version: "3.12"
+          cache: pip
+          cache-dependency-path: requirements*.txt
+      - run: pip install -r requirements-dev.txt
+      - run: ruff check .
+      - run: ruff format --check .
+
+  test:
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:17-alpine
+        env:
+          POSTGRES_DB: tasks
+          POSTGRES_USER: tasks
+          POSTGRES_PASSWORD: tasks
+        ports: ["5432:5432"]
+        options: >-
+          --health-cmd "pg_isready -U tasks -d tasks"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+    env:
+      # PostgreSQL, so the row-locking test runs instead of being skipped.
+      DATABASE_URL: postgres://tasks:tasks@localhost:5432/tasks
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-python@v6
+        with:
+          python-version: "3.12"
+          cache: pip
+          cache-dependency-path: requirements*.txt
+      - run: pip install -r requirements-dev.txt
+      - run: python manage.py check
+      - run: python manage.py makemigrations --check --dry-run
+      - run: python manage.py spectacular --validate --fail-on-warn --file /dev/null
+      - name: Deployment checks with production settings
+        run: python manage.py check --deploy --fail-level WARNING
+        env:
+          DJANGO_DEBUG: "False"
+          DJANGO_SECRET_KEY: ci-only-${{ github.run_id }}-not-a-real-secret-0123456789abcdefghijklmnop
+          DJANGO_ALLOWED_HOSTS: tasks.example.com
+          DJANGO_SECURE_HTTPS: "1"
+          DJANGO_SECURE_HSTS_INCLUDE_SUBDOMAINS: "1"
+          DJANGO_SECURE_HSTS_PRELOAD: "1"
+      - run: pytest --cov --cov-report=term-missing --cov-fail-under=95
+
+  docker:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+      - name: Start the compose stack
+        run: |
+          cp .env.example .env
+          sed -i "s/^DJANGO_SECRET_KEY=.*/DJANGO_SECRET_KEY=$(openssl rand -hex 32)/" .env
+          sed -i "s/^POSTGRES_PASSWORD=.*/POSTGRES_PASSWORD=$(openssl rand -hex 16)/" .env
+          docker compose up --build --detach --wait --wait-timeout 180
+      - name: Smoke test
+        run: curl --fail --silent --show-error http://localhost:8000/api/health/
+      - name: Container logs
+        if: always()
+        run: docker compose logs
+      - if: always()
+        run: docker compose down --volumes
