@@ -40,11 +40,9 @@ class TaskViewSet(viewsets.ModelViewSet):
         )
 
     def perform_create(self, serializer):
-        serializer.save(author=self.request.user)
-
-    def _task_response(self, task: Task) -> Response:
-        # Re-read through get_queryset so annotated fields stay present.
-        return Response(self.get_serializer(self.get_queryset().get(pk=task.pk)).data)
+        task = serializer.save(author=self.request.user)
+        # Not annotated like queryset rows; set it so every response has the same shape.
+        task.comments_count = 0
 
     @extend_schema(
         summary="Mark a task as completed",
@@ -62,7 +60,7 @@ class TaskViewSet(viewsets.ModelViewSet):
         if task.is_completed:
             raise ValidationError({"status": "Task is already completed."})
         task.mark_completed()
-        return self._task_response(task)
+        return Response(self.get_serializer(task).data)
 
     @extend_schema(
         summary="Reopen a completed task",
@@ -80,7 +78,7 @@ class TaskViewSet(viewsets.ModelViewSet):
         if not task.is_completed:
             raise ValidationError({"status": "Task is not completed."})
         task.reopen()
-        return self._task_response(task)
+        return Response(self.get_serializer(task).data)
 
     @extend_schema(
         summary="Assign a task to a user (author only)",
@@ -95,7 +93,7 @@ class TaskViewSet(viewsets.ModelViewSet):
         serializer.is_valid(raise_exception=True)
         task.assignee = serializer.validated_data["assignee_id"]
         task.save(update_fields=["assignee", "updated_at"])
-        return self._task_response(task)
+        return Response(self.get_serializer(task).data)
 
 
 @extend_schema_view(

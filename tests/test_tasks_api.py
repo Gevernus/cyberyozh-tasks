@@ -39,6 +39,7 @@ def test_create_task_sets_current_user_as_author(auth_client, user, other_user):
     assert response.data["author"]["username"] == user.username
     assert response.data["assignee"]["id"] == other_user.pk
     assert response.data["status"] == Task.Status.TODO
+    assert response.data["comments_count"] == 0
 
 
 def test_create_task_ignores_client_supplied_author(auth_client, user, other_user):
@@ -101,6 +102,7 @@ def test_author_can_update_task(auth_client, user):
     response = auth_client.patch(detail_url(task), {"title": "Updated", "status": "in_progress"})
 
     assert response.status_code == status.HTTP_200_OK
+    assert response.data["comments_count"] == 0
     task.refresh_from_db()
     assert task.title == "Updated"
     assert task.status == Task.Status.IN_PROGRESS
@@ -230,6 +232,7 @@ def test_author_can_assign_task(auth_client, user, other_user):
 
     assert response.status_code == status.HTTP_200_OK
     assert response.data["assignee"]["id"] == other_user.pk
+    assert "comments_count" in response.data
     task.refresh_from_db()
     assert task.assignee == other_user
 

@@ -61,6 +61,8 @@ def test_deleting_assignee_unassigns_task():
 def test_deleting_task_deletes_comments():
     comment = CommentFactory()
 
+    assert str(comment) == f"Comment #{comment.pk} on task #{comment.task_id}"
+
     comment.task.delete()
 
     assert not type(comment).objects.filter(pk=comment.pk).exists()
