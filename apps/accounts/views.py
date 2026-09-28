@@ -5,6 +5,7 @@ from rest_framework.decorators import action
 from rest_framework.permissions import AllowAny
 from rest_framework.request import Request
 from rest_framework.response import Response
+from rest_framework_simplejwt import views as jwt_views
 
 from .serializers import RegisterSerializer, UserSerializer
 
@@ -16,6 +17,17 @@ class RegisterView(generics.CreateAPIView):
     serializer_class = RegisterSerializer
     permission_classes = [AllowAny]
     authentication_classes = []
+    throttle_scope = "auth"
+
+
+# simplejwt views have no throttle scope, so credential guessing would only be
+# limited by the generic anonymous rate.
+class TokenObtainPairView(jwt_views.TokenObtainPairView):
+    throttle_scope = "auth"
+
+
+class TokenRefreshView(jwt_views.TokenRefreshView):
+    throttle_scope = "auth"
 
 
 @extend_schema(tags=["users"])

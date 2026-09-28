@@ -98,6 +98,21 @@ DATABASES = {
     )
 }
 
+# Throttle counters must be shared by all gunicorn processes, hence Redis in
+# production. LocMem is per-process and only suits local runs and tests.
+REDIS_URL = os.environ.get("REDIS_URL", "")
+if REDIS_URL:
+    CACHES = {
+        "default": {
+            "BACKEND": "django.core.cache.backends.redis.RedisCache",
+            "LOCATION": REDIS_URL,
+            # redis-py waits forever by default; fail fast instead of hanging a worker.
+            "OPTIONS": {"socket_connect_timeout": 2, "socket_timeout": 2},
+        }
+    }
+else:
+    CACHES = {"default": {"BACKEND": "django.core.cache.backends.locmem.LocMemCache"}}
+
 AUTH_USER_MODEL = "accounts.User"
 
 AUTH_PASSWORD_VALIDATORS = [
@@ -135,6 +150,21 @@ REST_FRAMEWORK = {
     ],
     "DEFAULT_PAGINATION_CLASS": "config.pagination.DefaultPagination",
     "PAGE_SIZE": 20,
+    "DEFAULT_THROTTLE_CLASSES": [
+        "rest_framework.throttling.AnonRateThrottle",
+        "rest_framework.throttling.UserRateThrottle",
+        # Applies only to views that declare a throttle_scope.
+        "rest_framework.throttling.ScopedRateThrottle",
+    ],
+    "DEFAULT_THROTTLE_RATES": {
+        "anon": os.environ.get("THROTTLE_ANON_RATE", "100/hour"),
+        "user": os.environ.get("THROTTLE_USER_RATE", "1000/hour"),
+        "auth": os.environ.get("THROTTLE_AUTH_RATE", "10/min"),
+    },
+    # 0 = identify clients by the socket address. Without it DRF trusts any
+    # X-Forwarded-For value, so a client could dodge throttling by forging the header.
+    # Set to the number of reverse proxies in front of the app.
+    "NUM_PROXIES": env_int("NUM_PROXIES", 0),
     "DEFAULT_SCHEMA_CLASS": "drf_spectacular.openapi.AutoSchema",
     "TEST_REQUEST_DEFAULT_FORMAT": "json",
 }

@@ -1,5 +1,7 @@
 import pytest
+from django.core.cache import cache
 from rest_framework.test import APIClient
+from rest_framework.throttling import SimpleRateThrottle
 
 from tests.factories import UserFactory
 
@@ -7,6 +9,27 @@ from tests.factories import UserFactory
 @pytest.fixture(autouse=True)
 def _fast_password_hashing(settings):
     settings.PASSWORD_HASHERS = ["django.contrib.auth.hashers.MD5PasswordHasher"]
+
+
+@pytest.fixture(autouse=True)
+def _fresh_throttle_counters():
+    cache.clear()
+
+
+@pytest.fixture
+def throttle_rates(monkeypatch):
+    """Lower the rates for one test.
+
+    DRF copies the rates into the throttle classes at import time, so
+    override_settings would not reach them.
+    """
+
+    def _set(**rates: str) -> None:
+        monkeypatch.setattr(
+            SimpleRateThrottle, "THROTTLE_RATES", {**SimpleRateThrottle.THROTTLE_RATES, **rates}
+        )
+
+    return _set
 
 
 @pytest.fixture
