@@ -116,15 +116,78 @@ def test_comments_count_follows_creation_and_deletion():
     assert comments_count(task) == 0
 
 
+def test_deleting_comments_of_several_tasks_uncounts_each_task():
+    busy, quiet, untouched = TaskFactory.create_batch(3)
+    CommentFactory.create_batch(3, task=busy)
+    CommentFactory(task=quiet)
+    CommentFactory(task=untouched)
+
+    deleted = Comment.objects.exclude(task=untouched).delete()
+
+    assert deleted == (4, {"tasks.Comment": 4})
+    assert [comments_count(task) for task in (busy, quiet, untouched)] == [0, 0, 1]
+
+
+def test_a_comment_deleted_twice_is_uncounted_once():
+    comment, _ = CommentFactory.create_batch(2)
+    CommentFactory(task=comment.task)
+    stale = Comment.objects.get(pk=comment.pk)
+
+    comment.delete()
+    stale.delete()
+
+    assert comments_count(comment.task) == 1
+
+
 def test_deleting_a_user_uncounts_their_comments_on_other_tasks():
-    task = TaskFactory()
     commenter = UserFactory()
-    CommentFactory.create_batch(2, task=task, author=commenter)
-    CommentFactory(task=task)
+    first, second = TaskFactory.create_batch(2)
+    CommentFactory.create_batch(2, task=first, author=commenter)
+    CommentFactory(task=first)
+    CommentFactory(task=second, author=commenter)
+    CommentFactory.create_batch(2, task=TaskFactory(author=commenter))
 
     commenter.delete()
 
-    assert comments_count(task) == 1
+    assert [comments_count(first), comments_count(second)] == [1, 0]
+    assert Comment.objects.count() == 1
+
+
+def test_deleting_users_who_comment_on_each_other_keeps_other_counters():
+    alice, bob = UserFactory.create_batch(2)
+    third_party = TaskFactory()
+    CommentFactory(task=TaskFactory(author=alice), author=bob)
+    CommentFactory(task=TaskFactory(author=bob), author=alice)
+    CommentFactory(task=third_party, author=alice)
+    CommentFactory(task=third_party)
+
+    type(alice).objects.filter(pk__in=[alice.pk, bob.pk]).delete()
+
+    assert list(Task.objects.values_list("pk", "comments_count")) == [(third_party.pk, 1)]
+
+
+@pytest.mark.parametrize("tasks", [1, 20])
+def test_deleting_a_user_takes_the_same_queries_however_many_comments(
+    tasks, django_assert_num_queries
+):
+    user = UserFactory()
+    for task in TaskFactory.create_batch(tasks, author=user):
+        CommentFactory.create_batch(3, task=task)
+    for task in TaskFactory.create_batch(tasks):
+        CommentFactory.create_batch(2, task=task, author=user)
+
+    # The user's tasks, then per table one DELETE or UPDATE: no query per comment.
+    with django_assert_num_queries(11):
+        user.delete()
+
+
+@pytest.mark.parametrize("comments", [1, 20])
+def test_deleting_a_task_does_not_load_its_comments(comments, django_assert_num_queries):
+    task = TaskFactory()
+    CommentFactory.create_batch(comments, task=task)
+
+    with django_assert_num_queries(2):  # the comments, the task
+        task.delete()
 
 
 def test_deleting_tasks_with_comments_leaves_no_rows():

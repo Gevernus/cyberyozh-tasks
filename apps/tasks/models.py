@@ -1,7 +1,7 @@
 from django.conf import settings
 from django.db import models, transaction
-from django.db.models import F, QuerySet
-from django.db.models.signals import post_delete
+from django.db.models import Count, F, OuterRef, Subquery
+from django.db.models.signals import pre_delete
 from django.dispatch import receiver
 from django.utils import timezone
 
@@ -113,13 +113,30 @@ class Task(models.Model):
         self.refresh_from_db(from_queryset=Task.objects.select_for_update())
 
 
+class CommentQuerySet(models.QuerySet):
+    def delete(self):
+        """Delete the comments and uncount them: one DELETE and one UPDATE per task."""
+        deleted = 0
+        with transaction.atomic(using=self.db):
+            for task_id in self.order_by().values_list("task", flat=True).distinct():
+                count, _ = super(CommentQuerySet, self.filter(task=task_id)).delete()
+                _uncount(task_id, count)
+                deleted += count
+        return deleted, ({self.model._meta.label: deleted} if deleted else {})
+
+
 class Comment(models.Model):
     """A comment on a task.
 
     Task.comments_count follows comments with atomic F() updates in the same
-    transaction: +1 in save() on creation, -1 in the post_delete handler below, which
-    also covers cascades (e.g. deleting a user). bulk_create bypasses both; callers
-    must set the counters themselves.
+    transaction: +1 in save() on creation; on deletion, minus the rows the DELETE
+    actually removed, so a comment deleted by two requests at once is uncounted once.
+    Deleting a task needs no update, and deleting a user uncounts their comments on
+    other tasks in one UPDATE (see the pre_delete handler below).
+
+    No delete signal is connected to Comment, and none should be: it would make
+    every cascade (a task, a user) load its comments and handle them one by one.
+    bulk_create bypasses the counter; callers must set it themselves.
     """
 
     task = models.ForeignKey(Task, on_delete=models.CASCADE, related_name="comments")
@@ -129,6 +146,8 @@ class Comment(models.Model):
     text = models.TextField(max_length=2_000)
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
+
+    objects = CommentQuerySet.as_manager()
 
     class Meta:
         ordering = ["created_at"]
@@ -145,12 +164,30 @@ class Comment(models.Model):
             super().save(*args, **kwargs)
             Task.objects.filter(pk=self.task_id).update(comments_count=F("comments_count") + 1)
 
+    def delete(self, *args, **kwargs):
+        with transaction.atomic():
+            deleted, per_model = super().delete(*args, **kwargs)
+            _uncount(self.task_id, deleted)
+        return deleted, per_model
 
-@receiver(post_delete, sender=Comment)
-def _decrement_comments_count(sender, instance: Comment, origin=None, **kwargs) -> None:
-    # Runs inside the deletion's transaction. Nothing to count when the task goes too.
-    deleting_tasks = isinstance(origin, Task) or (
-        isinstance(origin, QuerySet) and origin.model is Task
+
+def _uncount(task_id: int, count: int) -> None:
+    if count:
+        Task.objects.filter(pk=task_id).update(comments_count=F("comments_count") - count)
+
+
+@receiver(pre_delete, sender=settings.AUTH_USER_MODEL)
+def _uncount_comments_of_deleted_user(sender, instance, **kwargs) -> None:
+    # The cascade deletes the user's comments without Comment.delete(). Their own
+    # tasks are skipped: those go too.
+    theirs = Comment.objects.filter(author=instance)
+    per_task = (
+        theirs.filter(task=OuterRef("pk"))
+        .order_by()
+        .values("task")
+        .annotate(count=Count("pk"))
+        .values("count")
     )
-    if not deleting_tasks:
-        Task.objects.filter(pk=instance.task_id).update(comments_count=F("comments_count") - 1)
+    Task.objects.filter(pk__in=theirs.values("task")).exclude(author=instance).update(
+        comments_count=F("comments_count") - Subquery(per_task)
+    )
