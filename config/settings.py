@@ -168,9 +168,8 @@ DEFAULT_AUTO_FIELD = "django.db.models.BigAutoField"
 REST_FRAMEWORK = {
     "DEFAULT_AUTHENTICATION_CLASSES": [
         "rest_framework_simplejwt.authentication.JWTAuthentication",
-        # Session auth keeps the browsable API usable after logging in to the admin.
-        "rest_framework.authentication.SessionAuthentication",
     ],
+    "DEFAULT_RENDERER_CLASSES": ["rest_framework.renderers.JSONRenderer"],
     "DEFAULT_PERMISSION_CLASSES": ["rest_framework.permissions.IsAuthenticated"],
     "DEFAULT_FILTER_BACKENDS": [
         "django_filters.rest_framework.DjangoFilterBackend",
@@ -196,7 +195,7 @@ REST_FRAMEWORK = {
     # X-Forwarded-For value, so a client could dodge throttling by forging the header.
     # Set to the number of reverse proxies in front of the app.
     "NUM_PROXIES": env_int("NUM_PROXIES", 0),
-    "DEFAULT_SCHEMA_CLASS": "drf_spectacular.openapi.AutoSchema",
+    "DEFAULT_SCHEMA_CLASS": "core.openapi.AutoSchema",
     "TEST_REQUEST_DEFAULT_FORMAT": "json",
 }
 
@@ -215,8 +214,10 @@ SPECTACULAR_SETTINGS = {
     "TITLE": "Task Management API",
     "DESCRIPTION": (
         "REST API for managing tasks: create, edit, delete, assign to other users, "
-        "mark as completed and discuss in comments. Authenticate with a JWT access "
-        "token: `Authorization: Bearer <token>`."
+        "mark as completed and discuss in comments. Requests carry a JWT access token: "
+        "`Authorization: Bearer <token>`. In Swagger UI, get a token from "
+        "`POST /api/auth/token/`, press Authorize and paste the access token without "
+        "the `Bearer` prefix."
     ),
     "VERSION": "1.0.0",
     "SERVE_INCLUDE_SCHEMA": False,

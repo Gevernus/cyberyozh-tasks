@@ -1,6 +1,7 @@
 import pytest
 from django.core.management import call_command
 from django.urls import reverse
+from drf_spectacular.generators import SchemaGenerator
 
 
 @pytest.mark.django_db
@@ -38,3 +39,34 @@ def test_swagger_init_script_is_served_separately(api_client):
 
     assert response.status_code == 200
     assert response["Content-Type"].startswith("application/javascript")
+
+
+@pytest.fixture(scope="module")
+def schema() -> dict:
+    return SchemaGenerator().get_schema(request=None, public=True)
+
+
+def responses(schema: dict, method: str, path: str) -> set[str]:
+    return set(schema["paths"][path][method]["responses"])
+
+
+def test_schema_documents_error_responses(schema):
+    assert responses(schema, "post", "/api/tasks/{id}/complete/") == {
+        "200",
+        "400",
+        "401",
+        "403",
+        "404",
+        "429",
+    }
+    assert responses(schema, "get", "/api/tasks/") == {"200", "400", "401", "429"}
+    assert responses(schema, "post", "/api/auth/token/") == {"200", "400", "401", "429"}
+    assert responses(schema, "get", "/api/health/live/") == {"200"}
+
+
+def test_schema_offers_only_jwt_authorization(schema):
+    [(name, scheme)] = schema["components"]["securitySchemes"].items()
+
+    assert name == "jwtAuth"
+    assert scheme["scheme"] == "bearer"
+    assert "without the `Bearer` prefix" in scheme["description"]

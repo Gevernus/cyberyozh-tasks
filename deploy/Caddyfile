@@ -25,7 +25,7 @@
 
 	# "?" fills a header only where Django did not set it, e.g. on responses Caddy
 	# makes itself (413, 502), so Django's HSTS options stay in force.
-	# The CSP admits Swagger UI, Redoc and the browsable API; JSON ignores it.
+	# The CSP admits Swagger UI and Redoc; JSON ignores it.
 	header {
 		defer
 		?Strict-Transport-Security "max-age=31536000"

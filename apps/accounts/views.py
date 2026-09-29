@@ -1,5 +1,5 @@
 from django.contrib.auth import get_user_model
-from drf_spectacular.utils import extend_schema
+from drf_spectacular.utils import extend_schema, extend_schema_view
 from rest_framework import generics, viewsets
 from rest_framework.decorators import action
 from rest_framework.permissions import AllowAny
@@ -35,6 +35,7 @@ class RegisterView(generics.CreateAPIView):
     throttle_classes = AUTH_THROTTLES
 
 
+@extend_schema(summary="Obtain an access and refresh token pair")
 class TokenObtainPairView(jwt_views.TokenObtainPairView):
     # Per IP, per target account from that IP, per target account from all IPs.
     throttle_classes = [*AUTH_THROTTLES, AuthAccountAddressRateThrottle, AuthAccountRateThrottle]
@@ -48,6 +49,7 @@ class TokenObtainPairView(jwt_views.TokenObtainPairView):
                 self.throttled(request, throttle.wait())
 
 
+@extend_schema(summary="Exchange a refresh token for a new pair; the old one is revoked")
 class TokenRefreshView(jwt_views.TokenRefreshView):
     serializer_class = TokenRefreshSerializer
     throttle_classes = AUTH_THROTTLES
@@ -59,6 +61,10 @@ class TokenBlacklistView(jwt_views.TokenBlacklistView):
     throttle_classes = AUTH_THROTTLES
 
 
+@extend_schema_view(
+    list=extend_schema(summary="List active users"),
+    retrieve=extend_schema(summary="Get a user"),
+)
 @extend_schema(tags=["users"])
 class UserViewSet(viewsets.ReadOnlyModelViewSet):
     """Active users, e.g. to pick a task assignee."""
