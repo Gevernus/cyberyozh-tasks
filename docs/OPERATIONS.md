@@ -81,7 +81,15 @@ Let's Encrypt). Порядок старта: `db`, `redis` → `migrate` (зав
 git pull   # или git archive новой версии в тот же каталог
 docker compose build
 docker compose up -d --wait              # migrate отработает до перезапуска web
+docker compose run --rm migrate python manage.py reconcile_comments_count
 ```
+
+Последний шаг — когда все реплики web уже заменены (`up --wait` возвращается после этого).
+Код до появления `comments_count` добавляет комментарии, не увеличивая счётчик, а
+заполнение в миграции видит только то, что было в базе в момент его работы. Команда
+пересчитывает счётчики пачками по 1000 задач, каждая — короткая транзакция с блокировкой
+этих задач, записывает только расходящиеся и печатает их число; повторный запуск —
+`Corrected tasks: 0`. Безопасна на живой базе, выполнять при каждом обновлении.
 
 Миграции пишутся совместимыми со старым кодом (новые колонки — с `db_default`), поэтому
 старые реплики продолжают работать, пока `migrate` меняет схему. Запись в таблицы при этом
@@ -341,5 +349,6 @@ k6 run -e BASE_URL=https://$DOMAIN -e PASSWORD="$LOAD_PASSWORD" \
 | `canceling statement due to statement timeout` | запрос в логе, `EXPLAIN ANALYZE` | индекс или ограничение запроса; разово — поднять `DJANGO_DB_STATEMENT_TIMEOUT_MS` |
 | сертификат не выпускается | `logs caddy` (`acme`, `rateLimited`) | DNS → хост, порты 80/443, не удалять `caddy_data`; временно `CADDY_TLS=internal` |
 | `migrate` завершился с ошибкой, web не стартует | `docker compose logs migrate` | исправить причину, `docker compose up -d --wait`: миграции с `atomic = False` перезапускаемы — `INVALID`-индекс пересоздаётся, уже добавленная колонка не добавляется повторно, счётчики пересчитываются заново. `migrate --fake` не применять: пропущенное заполнение никто не доделает |
+| `comments_count` задачи не совпадает с числом комментариев | `SELECT count(*) FROM tasks_comment WHERE task_id = …` | `docker compose run --rm migrate python manage.py reconcile_comments_count` |
 | таблица outstanding-токенов растёт | `SELECT count(*) FROM token_blacklist_outstandingtoken` | `manage.py flushexpiredtokens` по расписанию |
 | смена `DJANGO_SECRET_KEY` | | все JWT и сессии станут недействительны: `up -d` в окно обслуживания |
