@@ -21,9 +21,8 @@ def create_indexes(apps, schema_editor):
         return
     schema_editor.execute("CREATE EXTENSION IF NOT EXISTS pg_trgm")
     for name, column in INDEXES.items():
-        create_index(
-            schema_editor, name, "tasks_task", f'USING gin ((UPPER("{column}"::text)) gin_trgm_ops)'
-        )
+        definition = f'USING gin ((UPPER("{column}"::text)) gin_trgm_ops)'
+        create_index(schema_editor, name, "tasks_task", definition)
 
 
 def drop_indexes(apps, schema_editor):
