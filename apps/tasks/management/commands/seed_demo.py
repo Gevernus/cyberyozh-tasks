@@ -15,10 +15,7 @@ DEMO_USERS = ["alice", "bob", "carol"]
 
 
 class Command(BaseCommand):
-    help = (
-        "Create demo users, tasks and comments. Safe to run repeatedly; every run sets "
-        "a new password for the demo users. For local or private environments only."
-    )
+    help = "Create demo users, tasks and comments; each run sets a new password."
 
     def add_arguments(self, parser):
         parser.add_argument(
@@ -33,7 +30,7 @@ class Command(BaseCommand):
         if password is None:
             password = secrets.token_urlsafe(12)
         else:
-            # An empty DEMO_PASSWORD is a mistake, not a request for a random password.
+            # An empty DEMO_PASSWORD is rejected rather than replaced.
             try:
                 validate_password(password)
             except ValidationError as exc:

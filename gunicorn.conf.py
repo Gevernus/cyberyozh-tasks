@@ -1,4 +1,4 @@
-"""Gunicorn settings for the container; sizing knobs come from the environment."""
+"""Gunicorn settings for the container."""
 
 import os
 import shutil
@@ -15,7 +15,7 @@ def env_int(name: str, default: int) -> int:
 
 bind = "0.0.0.0:8000"
 
-# Threaded workers: a slow client or a slow query no longer blocks the whole worker.
+# A slow client or query occupies one thread, not the whole worker.
 worker_class = "gthread"
 workers = env_int("GUNICORN_WORKERS", min(2 * (os.cpu_count() or 1) + 1, 4))
 threads = env_int("GUNICORN_THREADS", 4)
@@ -24,12 +24,11 @@ timeout = 30
 graceful_timeout = 30
 keepalive = 5
 
-# Recycle workers periodically to cap slow memory growth; jitter avoids restarting all at once.
+# Recycling caps memory growth; the jitter keeps workers from restarting together.
 max_requests = 1000
 max_requests_jitter = 100
 
-# The worker heartbeat file on tmpfs: a slow overlay filesystem can otherwise stall
-# workers into timeouts. /dev/shm is absent on macOS, where gunicorn uses its default.
+# Worker heartbeats on tmpfs: a slow overlay filesystem can stall workers into timeouts.
 worker_tmp_dir = "/dev/shm" if os.path.isdir("/dev/shm") else None  # nosec B108
 
 # Proxies allowed to set X-Forwarded-Proto for gunicorn itself.
@@ -37,7 +36,7 @@ forwarded_allow_ips = os.environ.get("FORWARDED_ALLOW_IPS") or "127.0.0.1,::1"
 
 
 class JsonAccessLogger(Logger):
-    """Writes one JSON access record per request, correlated by the request id."""
+    """One JSON access record per request, with its request id."""
 
     def access(self, resp, req, environ, request_time) -> None:
         response_headers = {name.lower(): value for name, value in resp.headers}
@@ -78,13 +77,13 @@ logconfig_dict = {
     },
 }
 
-# Each worker writes its metrics to files here; /metrics aggregates them.
+# Workers write metrics to files here; /metrics aggregates them.
 prometheus_dir = os.environ.get("PROMETHEUS_MULTIPROC_DIR")
 
 
 def on_starting(server) -> None:
     if prometheus_dir:
-        # Files left by a previous run would be counted as live workers.
+        # Files from a previous run would count as live workers.
         shutil.rmtree(prometheus_dir, ignore_errors=True)
         os.makedirs(prometheus_dir)
 

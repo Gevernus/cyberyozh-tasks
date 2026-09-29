@@ -3,7 +3,7 @@ import ipaddress
 from django.http import Http404, HttpRequest, HttpResponse
 from django_prometheus.exports import ExportToDjangoView
 
-# Loopback and RFC 1918 / RFC 4193 ranges: where Docker networks and scrapers live.
+# Loopback and private ranges, where Docker networks and scrapers live.
 INTERNAL_NETWORKS = [
     ipaddress.ip_network(network)
     for network in (
@@ -28,11 +28,9 @@ def is_internal_address(address: str) -> bool:
 
 
 def metrics_view(request: HttpRequest) -> HttpResponse:
-    """Prometheus metrics for scrapers inside the private network.
+    """Prometheus metrics for private addresses, judged by the socket address.
 
-    Judged by the socket address only: X-Forwarded-For is set by whoever sends the
-    request. The reverse proxy is itself on the private network, so it must block
-    this path too; see deploy/Caddyfile.
+    Caddy is on the private network too, so it blocks /metrics itself.
     """
     if not is_internal_address(request.META.get("REMOTE_ADDR", "")):
         raise Http404

@@ -1,13 +1,5 @@
-"""Rate limits that survive a Redis outage.
-
-Counters live in Redis so that every gunicorn process and replica shares them.
-When Redis is unreachable:
-
-* general limits fail open: the API keeps serving rather than answering 500;
-* auth limits fall back to a counter in the process's memory. Password guessing
-  stays limited, only per process instead of globally (see docs/OPERATIONS.md for
-  the effective rate).
-"""
+"""Rate limits kept in Redis. Without Redis general limits let requests through,
+while auth limits count in the memory of each process."""
 
 import hashlib
 import logging
@@ -52,7 +44,7 @@ class FailOpenUserRateThrottle(FailOpenMixin, throttling.UserRateThrottle):
 
 
 class AuthRateThrottle(LocalFallbackMixin, throttling.SimpleRateThrottle):
-    """One budget per client IP shared by all auth endpoints, signed in or not."""
+    """One budget per client IP for all auth endpoints, signed in or not."""
 
     scope = "auth"
 
@@ -61,7 +53,7 @@ class AuthRateThrottle(LocalFallbackMixin, throttling.SimpleRateThrottle):
 
 
 def requested_account(request) -> str | None:
-    """The username a token request is for, normalised as Django does and case-folded."""
+    """The username a token request is for, normalised and case-folded."""
     username = request.data.get("username") if hasattr(request.data, "get") else None
     if not isinstance(username, str) or not username.strip():
         return None
@@ -73,10 +65,7 @@ def digest(value: str) -> str:
 
 
 class AuthAccountAddressRateThrottle(LocalFallbackMixin, throttling.SimpleRateThrottle):
-    """Token requests for one username from one client IP: the tight guessing limit.
-
-    Whoever uses it up blocks only their own address, not the account's owner.
-    """
+    """Token requests for one username from one IP; using it up blocks only that IP."""
 
     scope = "auth_account_ip"
 
@@ -89,11 +78,10 @@ class AuthAccountAddressRateThrottle(LocalFallbackMixin, throttling.SimpleRateTh
 
 
 class AuthAccountRateThrottle(LocalFallbackMixin, throttling.SimpleRateThrottle):
-    """Token requests for one username from all addresses together.
+    """Token requests for one username from all IPs.
 
-    A backstop against guessing spread over many IPs. Using it up locks the owner
-    out too, so it is set well above the per-address limit: it takes many addresses
-    to reach, and reaching it is logged for alerting.
+    Using it up locks the owner out too, so it is set well above the per-IP limit
+    and reaching it is logged.
     """
 
     scope = "auth_account"
@@ -105,12 +93,12 @@ class AuthAccountRateThrottle(LocalFallbackMixin, throttling.SimpleRateThrottle)
         return self.cache_format % {"scope": self.scope, "ident": digest(self.account)}
 
     def throttle_failure(self) -> bool:
-        # Once per window per account: a line per refused attempt would flood the log.
+        # Once per window and account.
         if self.cache.add(f"{self.key}:reported", True, self.duration):
             logger.warning(
                 "Account throttled: token requests over %s from all addresses",
                 self.rate,
-                # The digest from the throttle key: which account, without the login in logs.
+                # The digest from the throttle key keeps logins out of the log.
                 extra={"account": digest(self.account)},
             )
         return False

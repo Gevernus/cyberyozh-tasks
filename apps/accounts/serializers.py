@@ -13,7 +13,7 @@ User = get_user_model()
 
 
 class UserSerializer(serializers.ModelSerializer):
-    """Public user representation, safe to expose to any authenticated user."""
+    """What any authenticated user may see about another."""
 
     class Meta:
         model = User
@@ -24,9 +24,8 @@ class UserSerializer(serializers.ModelSerializer):
 class RegisterSerializer(serializers.ModelSerializer):
     """Creates an account without revealing whether a username is taken.
 
-    Format errors name the field; a taken username gets one generic error, raised
-    only after every other check passed and after hashing the password, so neither
-    the body nor the timing tells it apart from other failures.
+    A taken username gets a generic error, after every other check and after
+    hashing the password, so neither the body nor the timing gives it away.
     """
 
     password = serializers.CharField(write_only=True, style={"input_type": "password"})
@@ -35,19 +34,18 @@ class RegisterSerializer(serializers.ModelSerializer):
         model = User
         fields = ["id", "username", "email", "password", "first_name", "last_name"]
         read_only_fields = ["id"]
-        # The model's UniqueValidator would answer "already exists"; checked in validate().
+        # Without the model's UniqueValidator, which answers "already exists".
         extra_kwargs = {"username": {"validators": [User.username_validator]}}
 
     def validate(self, attrs):
-        # Run Django's password validators against an unsaved instance so that
-        # similarity checks can compare the password with username/email.
+        # An unsaved user lets the similarity check compare against username and email.
         candidate = User(**{key: value for key, value in attrs.items() if key != "password"})
         try:
             validate_password(attrs["password"], user=candidate)
         except DjangoValidationError as exc:
             raise serializers.ValidationError({"password": exc.messages}) from exc
         if User.objects.filter(username=attrs["username"]).exists():
-            make_password(attrs["password"])  # the same work as creating the account
+            make_password(attrs["password"])
             raise registration_failed()
         return attrs
 
@@ -67,10 +65,8 @@ def registration_failed() -> serializers.ValidationError:
 
 class SingleUseRefreshMixin:
     def validate(self, attrs):
-        # The blacklist check and the blacklisting are separate queries: two concurrent
-        # requests with one token both passed the check and both got a new pair. The
-        # token's row is locked first, so the second request waits for the first to
-        # commit and then finds the token blacklisted (401).
+        # The token's row stays locked until the blacklisting commits, so a concurrent
+        # request with the same token finds it blacklisted.
         jti = self.token_class(attrs["refresh"])[jwt_settings.JTI_CLAIM]
         with transaction.atomic():
             OutstandingToken.objects.select_for_update().filter(jti=jti).exists()

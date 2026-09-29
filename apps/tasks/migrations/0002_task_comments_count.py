@@ -1,12 +1,7 @@
 """Store the number of comments on each task.
 
-Non-atomic: in one transaction, the lock taken by ADD COLUMN, which blocks even
-reads of the table, would last until the backfill finished. The column is added
-at once; the backfill then runs in id ranges, each a short statement of its own.
-
-Both steps can be repeated: the column is added only if missing, and the backfill
-sets every task's counter from its comments. A run that failed midway is simply
-run again, never marked applied with --fake.
+Non-atomic, so the ADD COLUMN lock, which blocks even reads, is released before the
+backfill runs in short id-range statements. Both steps can run again after a failure.
 """
 
 from django.db import migrations, models

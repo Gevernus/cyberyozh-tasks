@@ -9,7 +9,7 @@ User = get_user_model()
 
 
 class AssigneeField(serializers.PrimaryKeyRelatedField):
-    """Accepts the id of an active user (or null to unassign)."""
+    """The id of an active user, or null."""
 
     def __init__(self, **kwargs):
         kwargs.setdefault("queryset", User.objects.filter(is_active=True))

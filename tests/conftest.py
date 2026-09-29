@@ -32,11 +32,7 @@ def _fresh_throttle_counters():
 
 @pytest.fixture
 def throttle_rates(monkeypatch):
-    """Lower the rates for one test.
-
-    DRF copies the rates into the throttle classes at import time, so
-    override_settings would not reach them.
-    """
+    """Override rates for one test; DRF reads them at import, past override_settings."""
 
     def _set(**rates: str) -> None:
         monkeypatch.setattr(

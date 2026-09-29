@@ -37,13 +37,11 @@ class RegisterView(generics.CreateAPIView):
 
 @extend_schema(summary="Obtain an access and refresh token pair")
 class TokenObtainPairView(jwt_views.TokenObtainPairView):
-    # Per IP, per target account from that IP, per target account from all IPs.
     throttle_classes = [*AUTH_THROTTLES, AuthAccountAddressRateThrottle, AuthAccountRateThrottle]
 
     def check_throttles(self, request) -> None:
-        # Stop at the first refusal. DRF counts a request in every limit that lets it
-        # through, so an attempt refused for its address would still use up the
-        # account's shared budget, and one address could lock the owner out.
+        # Stop at the first refusal: DRF would count the request in every other limit,
+        # so attempts refused for one IP would use up the account's shared budget.
         for throttle in self.get_throttles():
             if not throttle.allow_request(request, self):
                 self.throttled(request, throttle.wait())
@@ -67,7 +65,7 @@ class TokenBlacklistView(jwt_views.TokenBlacklistView):
 )
 @extend_schema(tags=["users"])
 class UserViewSet(viewsets.ReadOnlyModelViewSet):
-    """Active users, e.g. to pick a task assignee."""
+    """Active users, to pick a task assignee."""
 
     queryset = User.objects.filter(is_active=True).order_by("username")
     serializer_class = UserSerializer

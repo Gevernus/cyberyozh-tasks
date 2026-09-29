@@ -155,11 +155,9 @@ class CommentQuerySet(models.QuerySet):
 class Comment(models.Model):
     """A comment on a task.
 
-    Task.comments_count follows comments in the same transaction: +1 on creation,
-    minus the rows a DELETE actually removed on deletion, so a comment deleted by
-    two requests at once counts once. Deletion never loads comments one by one,
-    which is why no delete signal is connected to Comment. bulk_create bypasses
-    the counter.
+    Task.comments_count changes in the same transaction: +1 on creation, minus the
+    rows a DELETE actually removed. No delete signal is connected, so cascades never
+    load comments one by one. bulk_create skips the counter.
     """
 
     task = models.ForeignKey(

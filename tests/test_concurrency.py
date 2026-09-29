@@ -23,8 +23,7 @@ pytestmark = [
     pytest.mark.django_db(transaction=True),
 ]
 
-# How long the first writer holds its row lock waiting for the second request.
-# Without the lock both requests reach the write within milliseconds.
+# How long the first writer waits for the second while holding its row lock.
 RACE_WINDOW = 2.0
 
 
@@ -61,9 +60,8 @@ def test_concurrent_status_changes_apply_once(
     original_save = Task.save
 
     def save_after_rival_arrives(self, *args, **kwargs):
-        # A request that passed the state check waits here for the other one. With the
-        # row lock the rival is still blocked in SELECT ... FOR UPDATE, the wait times
-        # out and this request commits; without it both would pass the check and write.
+        # With the row lock the rival is blocked in SELECT ... FOR UPDATE, so this wait
+        # times out; without it both requests would pass the check and write.
         with contextlib.suppress(threading.BrokenBarrierError):
             both_passed_check.wait()
         original_save(self, *args, **kwargs)

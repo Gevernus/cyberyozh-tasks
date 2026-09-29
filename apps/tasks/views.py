@@ -33,7 +33,7 @@ class TaskViewSet(viewsets.ModelViewSet):
 
     serializer_class = TaskSerializer
     permission_classes = [IsAuthenticated, IsAuthorOrReadOnly]
-    # No client-chosen ordering: the list is paginated by cursor over a fixed order.
+    # No client ordering: the cursor needs a fixed one.
     filter_backends = [DjangoFilterBackend, SearchFilter]
     filterset_class = TaskFilter
     search_fields = ["title", "description"]
@@ -123,7 +123,7 @@ class CommentViewSet(viewsets.ModelViewSet):
         return get_object_or_404(Task, pk=self.kwargs["task_pk"])
 
     def get_queryset(self):
-        if getattr(self, "swagger_fake_view", False):  # schema generation, no URL kwargs
+        if getattr(self, "swagger_fake_view", False):  # schema generation has no task_pk
             return Comment.objects.none()
         return self.task.comments.select_related("author")
 

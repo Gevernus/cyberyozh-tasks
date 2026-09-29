@@ -11,7 +11,7 @@ from django.http import HttpRequest, HttpResponse
 
 REQUEST_ID_HEADER = "X-Request-ID"
 
-# Accept a caller's id only if it is short and cannot break log lines or headers.
+# A caller's id is kept only if it cannot break log lines or headers.
 VALID_REQUEST_ID = re.compile(r"[A-Za-z0-9._-]{1,64}")
 
 request_id_var: ContextVar[str | None] = ContextVar("request_id", default=None)
@@ -34,11 +34,7 @@ class RequestIdFilter(logging.Filter):
 
 
 class RequestIdMiddleware:
-    """Tags the request with an id: the caller's X-Request-ID if valid, else a new one.
-
-    The id is available to log records for the duration of the request and is
-    returned in the X-Request-ID response header.
-    """
+    """Tags the request, its log records and its response with an X-Request-ID."""
 
     def __init__(self, get_response: Callable[[HttpRequest], HttpResponse]) -> None:
         self.get_response = get_response

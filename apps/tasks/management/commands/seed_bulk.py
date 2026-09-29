@@ -23,9 +23,8 @@ COMMENT_WEIGHTS = [60, 20, 10, 7, 3]
 
 class Command(BaseCommand):
     help = (
-        "Fill the database with load-test data: USERS users named PREFIX00000... sharing "
-        "one password, and TASKS tasks with comments, inserted in batches. Adds to "
-        "existing data. For staging only. Run with DJANGO_DB_STATEMENT_TIMEOUT_MS=0."
+        "Add load-test data: users PREFIX00000... with one password, and tasks with "
+        "comments. Staging only; run with DJANGO_DB_STATEMENT_TIMEOUT_MS=0."
     )
 
     def add_arguments(self, parser):
@@ -52,12 +51,12 @@ class Command(BaseCommand):
         except ValidationError as exc:
             raise CommandError(f"Password rejected: {' '.join(exc.messages)}") from exc
 
-        # Test data, not secrets: a seedable generator keeps runs repeatable.
+        # Test data, not secrets.
         rng = random.Random(options["seed"])  # nosec B311
         user_ids = self._create_users(options["prefix"], options["users"], password)
         self._create_tasks(rng, user_ids, options["tasks"], options["batch_size"])
         if connection.vendor == "postgresql":
-            # Fresh statistics, so the planner sees the new table size right away.
+            # So the planner sees the new table sizes right away.
             tables = ", ".join(
                 connection.ops.quote_name(model._meta.db_table) for model in (Task, Comment)
             )
@@ -67,7 +66,7 @@ class Command(BaseCommand):
     def _create_users(self, prefix: str, count: int, password: str) -> list[int]:
         user_model = get_user_model()
         names = [f"{prefix}{number:05d}" for number in range(count)]
-        hashed = make_password(password)  # once: hashing a million times would take hours
+        hashed = make_password(password)
         with transaction.atomic():
             user_model.objects.bulk_create(
                 [user_model(username=name, password=hashed) for name in names],
@@ -86,7 +85,7 @@ class Command(BaseCommand):
             tasks = [self._random_task(rng, user_ids) for _ in range(size)]
             with transaction.atomic():
                 Task.objects.bulk_create(tasks)
-                # bulk_create bypasses Comment.save(), so the counters were set upfront.
+                # bulk_create skips Comment.save(); _random_task set the counters.
                 Comment.objects.bulk_create(
                     Comment(task=task, author_id=rng.choice(user_ids), text="Seeded comment.")
                     for task in tasks
@@ -110,7 +109,7 @@ class Command(BaseCommand):
             due_date=due_date,
             author_id=rng.choice(user_ids),
             assignee_id=rng.choice(user_ids) if rng.random() < 0.7 else None,
-            # bulk_create bypasses Task.save(), which keeps completed_at in step.
+            # bulk_create skips Task.save(), which sets completed_at.
             completed_at=timezone.now() if status == Task.Status.DONE else None,
             comments_count=rng.choices(COMMENT_COUNTS, COMMENT_WEIGHTS)[0],
         )

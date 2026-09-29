@@ -24,7 +24,7 @@ def check_cache() -> None:
 
 CHECKS: dict[str, Callable[[], None]] = {"database": check_database, "cache": check_cache}
 
-# Only throttling depends on the cache, and it fails open without it.
+# Only throttling uses the cache, and it works without it.
 OPTIONAL_CHECKS = frozenset({"cache"})
 
 
@@ -77,7 +77,7 @@ class ReadinessView(PublicView):
         for name, check in CHECKS.items():
             try:
                 check()
-            except Exception:  # whatever the cause, the dependency is unusable
+            except Exception:
                 logger.exception("Health check %r failed", name)
                 results[name] = "error"
             else:

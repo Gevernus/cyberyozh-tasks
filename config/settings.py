@@ -1,10 +1,4 @@
-"""
-Django settings for the task management API.
-
-All environment-specific values come from environment variables. Defaults are
-tuned for local development (SQLite, DEBUG on); production requires
-DJANGO_SECRET_KEY to be set explicitly.
-"""
+"""Settings from environment variables; the defaults suit local development."""
 
 import os
 from datetime import timedelta
@@ -49,7 +43,7 @@ if not SECRET_KEY:
 ALLOWED_HOSTS = env_list("DJANGO_ALLOWED_HOSTS", "localhost,127.0.0.1")
 CSRF_TRUSTED_ORIGINS = env_list("DJANGO_CSRF_TRUSTED_ORIGINS")
 
-# The admin login has no rate limit, so in production it is off unless asked for.
+# The admin login has no rate limit.
 ADMIN_ENABLED = env_bool("DJANGO_ADMIN_ENABLED", default=DEBUG)
 ADMIN_URL = (os.environ.get("DJANGO_ADMIN_URL", "").strip("/") or "admin") + "/"
 
@@ -60,14 +54,12 @@ INSTALLED_APPS = [
     "django.contrib.sessions",
     "django.contrib.messages",
     "django.contrib.staticfiles",
-    # Third-party
     "rest_framework",
     "rest_framework_simplejwt.token_blacklist",
     "django_filters",
     "drf_spectacular",
     "drf_spectacular_sidecar",
     "django_prometheus",
-    # Local
     "apps.accounts",
     "apps.tasks",
 ]
@@ -105,34 +97,29 @@ TEMPLATES = [
 
 WSGI_APPLICATION = "config.wsgi.application"
 
-# SQLite by default; PostgreSQL via DATABASE_URL=postgres://user:pass@host:5432/db
 DATABASES = {
     "default": dj_database_url.config(
         default=f"sqlite:///{BASE_DIR / 'db.sqlite3'}",
-        # A persistent connection is held per gunicorn thread: workers * threads
-        # connections in total must stay below PostgreSQL's max_connections.
         conn_max_age=env_int("DJANGO_CONN_MAX_AGE", 60),
         conn_health_checks=True,
     )
 }
 
-# A runaway query is cancelled instead of holding a worker thread and a connection.
-# 0 disables the limit, e.g. for migrations and bulk loads.
+# 0 disables the limit, for migrations and bulk loads.
 DB_STATEMENT_TIMEOUT_MS = env_int("DJANGO_DB_STATEMENT_TIMEOUT_MS", 5000)
 if DATABASES["default"]["ENGINE"] == "django.db.backends.postgresql" and DB_STATEMENT_TIMEOUT_MS:
     DATABASES["default"].setdefault("OPTIONS", {})["options"] = (
         f"-c statement_timeout={DB_STATEMENT_TIMEOUT_MS}"
     )
 
-# Throttle counters must be shared by all gunicorn processes, hence Redis in
-# production. LocMem is per-process and only suits local runs and tests.
+# Throttle counters are shared by all processes only in Redis.
 REDIS_URL = os.environ.get("REDIS_URL", "")
 if REDIS_URL:
     CACHES = {
         "default": {
             "BACKEND": "django.core.cache.backends.redis.RedisCache",
             "LOCATION": REDIS_URL,
-            # redis-py waits forever by default; fail fast instead of hanging a worker.
+            # redis-py waits forever by default.
             "OPTIONS": {"socket_connect_timeout": 2, "socket_timeout": 2},
         }
     }
@@ -178,8 +165,6 @@ REST_FRAMEWORK = {
     ],
     "DEFAULT_PAGINATION_CLASS": "core.pagination.DefaultPagination",
     "PAGE_SIZE": 20,
-    # Fail open: while the cache is unreachable requests pass without rate limits.
-    # Auth endpoints add their own limits, see apps/accounts/views.py.
     "DEFAULT_THROTTLE_CLASSES": [
         "core.throttling.FailOpenAnonRateThrottle",
         "core.throttling.FailOpenUserRateThrottle",
@@ -191,17 +176,14 @@ REST_FRAMEWORK = {
         "auth_account_ip": os.environ.get("THROTTLE_AUTH_ACCOUNT_IP_RATE", "10/hour"),
         "auth_account": os.environ.get("THROTTLE_AUTH_ACCOUNT_RATE", "100/hour"),
     },
-    # 0 = identify clients by the socket address. Without it DRF trusts any
-    # X-Forwarded-For value, so a client could dodge throttling by forging the header.
-    # Set to the number of reverse proxies in front of the app.
+    # Reverse proxies in front of the app. With 0 the client is the socket address;
+    # otherwise DRF takes it from X-Forwarded-For, which only a proxy may set.
     "NUM_PROXIES": env_int("NUM_PROXIES", 0),
     "DEFAULT_SCHEMA_CLASS": "core.openapi.AutoSchema",
     "TEST_REQUEST_DEFAULT_FORMAT": "json",
 }
 
-# Access tokens are not revocable, so they are short-lived. Refresh tokens are
-# single-use: each refresh returns a new one and blacklists the old, and logout
-# blacklists the current one. Run `manage.py flushexpiredtokens` daily.
+# Access tokens cannot be revoked, so they are short-lived; refresh tokens are single-use.
 SIMPLE_JWT = {
     "ACCESS_TOKEN_LIFETIME": timedelta(minutes=env_int("JWT_ACCESS_TOKEN_MINUTES", 15)),
     "REFRESH_TOKEN_LIFETIME": timedelta(days=env_int("JWT_REFRESH_TOKEN_DAYS", 7)),
@@ -224,28 +206,27 @@ SPECTACULAR_SETTINGS = {
     "COMPONENT_SPLIT_REQUEST": True,
     "SCHEMA_PATH_PREFIX": r"/api/",
     "SWAGGER_UI_SETTINGS": {"persistAuthorization": True},
-    # Served from our static files, not a CDN, so the CSP can stay at 'self'.
+    # From static files rather than a CDN, so the CSP stays at 'self'.
     "SWAGGER_UI_DIST": "SIDECAR",
     "SWAGGER_UI_FAVICON_HREF": "SIDECAR",
     "REDOC_DIST": "SIDECAR",
 }
 
 # --- Security --------------------------------------------------------------
-# Django's defaults, pinned so the policy is visible in one place.
+# Django's defaults, stated explicitly.
 SECURE_CONTENT_TYPE_NOSNIFF = True
 SECURE_REFERRER_POLICY = "same-origin"
 X_FRAME_OPTIONS = "DENY"
 SESSION_COOKIE_HTTPONLY = True
 
 if env_bool("DJANGO_SECURE_PROXY_SSL_HEADER", default=False):
-    # Only safe behind a proxy that always overwrites X-Forwarded-Proto.
+    # Only behind a proxy that always overwrites X-Forwarded-Proto.
     SECURE_PROXY_SSL_HEADER = ("HTTP_X_FORWARDED_PROTO", "https")
 
-# Off by default: the compose setup serves plain HTTP. Turn on once TLS terminates
-# in front of the app.
+# On in production, where Caddy terminates TLS.
 if env_bool("DJANGO_SECURE_HTTPS", default=False):
     SECURE_SSL_REDIRECT = True
-    # Health checks and metric scrapes talk plain HTTP inside the private network.
+    # Health checks and metric scrapes use plain HTTP inside the private network.
     SECURE_REDIRECT_EXEMPT = [r"^api/health/(live/)?$", r"^metrics$"]
     SESSION_COOKIE_SECURE = True
     CSRF_COOKIE_SECURE = True
@@ -254,9 +235,8 @@ if env_bool("DJANGO_SECURE_HTTPS", default=False):
     SECURE_HSTS_PRELOAD = env_bool("DJANGO_SECURE_HSTS_PRELOAD", False)
 
 # --- Logging ---------------------------------------------------------------
-# JSON lines on stdout for the container runtime to collect, each tagged with the
-# request id. Django's default handlers are dropped: with DEBUG off they only mail
-# ADMINS, so 500s were invisible.
+# JSON lines on stdout tagged with the request id. Django's own handlers, which mail
+# ADMINS when DEBUG is off, are replaced by propagation to the root logger.
 LOG_LEVEL = os.environ.get("DJANGO_LOG_LEVEL", "INFO").upper()
 
 LOGGING = {
@@ -275,14 +255,13 @@ LOGGING = {
     "root": {"handlers": ["console"], "level": LOG_LEVEL},
     "loggers": {
         "django": {"handlers": [], "level": LOG_LEVEL, "propagate": True},
-        # 5xx with tracebacks; 4xx are already in the gunicorn access log.
+        # 5xx with tracebacks; 4xx are in the gunicorn access log.
         "django.request": {"level": "ERROR"},
         "django.security": {"level": "WARNING"},
     },
 }
 
 # --- Error tracking ----------------------------------------------------------
-# Off unless SENTRY_DSN is set. Request bodies, cookies and user details stay out.
 if SENTRY_DSN := os.environ.get("SENTRY_DSN", ""):
     sentry_sdk.init(
         dsn=SENTRY_DSN,
