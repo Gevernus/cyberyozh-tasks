@@ -1,16 +1,17 @@
 import contextlib
 import threading
+import time
 from unittest import mock
 
 import pytest
-from django.db import connection
+from django.db import connection, transaction
 from django.urls import reverse
 from rest_framework import status
 from rest_framework.test import APIClient
 from rest_framework_simplejwt.tokens import RefreshToken
 
-from apps.tasks.models import Task
-from tests.factories import TaskFactory
+from apps.tasks.models import Comment, Task
+from tests.factories import CommentFactory, TaskFactory
 
 pytestmark = [
     pytest.mark.skipif(
@@ -96,6 +97,37 @@ def test_concurrent_comments_are_all_counted(user):
     assert codes == [status.HTTP_201_CREATED] * writers
     task.refresh_from_db()
     assert task.comments_count == writers
+
+
+def test_comments_deleted_by_two_requests_at_once_are_uncounted_once():
+    task = TaskFactory()
+    selected = [comment.pk for comment in CommentFactory.create_batch(3, task=task)]
+    CommentFactory(task=task)
+    first_deleted = threading.Event()
+    deleted = []
+
+    def delete(first: bool) -> None:
+        try:
+            if not first:
+                first_deleted.wait(RACE_WINDOW)
+            with transaction.atomic():
+                deleted.append(Comment.objects.filter(pk__in=selected).delete()[0])
+                if first:
+                    first_deleted.set()
+                    # The rival reaches the same rows meanwhile and waits for this commit.
+                    time.sleep(RACE_WINDOW / 4)
+        finally:
+            connection.close()
+
+    threads = [threading.Thread(target=delete, args=(first,)) for first in (True, False)]
+    for thread in threads:
+        thread.start()
+    for thread in threads:
+        thread.join()
+
+    assert deleted == [3, 0]
+    task.refresh_from_db()
+    assert task.comments_count == 1
 
 
 @pytest.mark.parametrize("rival", ["token-refresh", "token-blacklist"])

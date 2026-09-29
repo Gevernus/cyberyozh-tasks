@@ -179,6 +179,18 @@ PgBouncer по умолчанию отвергает, а в режиме `transa
 **Токены.** Каждый выданный refresh-токен — строка в `token_blacklist_outstandingtoken`.
 Раз в сутки: `docker compose run --rm migrate python manage.py flushexpiredtokens`.
 
+**Массовые операции в админке** ограничены таймаутом воркера gunicorn (30 с) и
+`statement_timeout` (5 с). Удаление комментариев — один SQL-запрос при любом числе задач
+(3000 комментариев к 3000 задачам через «выбрать все» и «Удалить выбранные» — 0,6 с), но
+админка загружает все выбранные объекты для страницы подтверждения и журнала, так что
+десятки тысяч строк через неё не удалить. Крупные чистки — из одноразового контейнера, где
+нет ни того, ни другого лимита:
+
+```bash
+docker compose run --rm migrate python manage.py shell -c \
+    "from apps.tasks.models import Comment; print(Comment.objects.filter(author__username='spammer').delete())"
+```
+
 ## Логи, метрики, ошибки
 
 - **Логи** — JSON-строки в stdout (`docker compose logs web`): `timestamp`, `level`,

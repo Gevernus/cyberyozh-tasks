@@ -1,5 +1,5 @@
 from django.conf import settings
-from django.db import models, transaction
+from django.db import connections, models, transaction
 from django.db.models import Count, F, OuterRef, Subquery
 from django.db.models.signals import pre_delete
 from django.dispatch import receiver
@@ -113,16 +113,46 @@ class Task(models.Model):
         self.refresh_from_db(from_queryset=Task.objects.select_for_update())
 
 
+# One statement: each task is uncounted by the rows this DELETE removed, so
+# comments deleted by two requests at once are uncounted once.
+DELETE_AND_UNCOUNT = """
+WITH deleted AS (
+    DELETE FROM tasks_comment WHERE id IN ({selected}) RETURNING task_id
+), uncounted AS (
+    UPDATE tasks_task SET comments_count = comments_count - removed.amount
+    FROM (SELECT task_id, count(*) AS amount FROM deleted GROUP BY task_id) AS removed
+    WHERE tasks_task.id = removed.task_id
+)
+SELECT count(*) FROM deleted
+"""
+
+
 class CommentQuerySet(models.QuerySet):
     def delete(self):
-        """Delete the comments and uncount them: one DELETE and one UPDATE per task."""
-        deleted = 0
-        with transaction.atomic(using=self.db):
-            for task_id in self.order_by().values_list("task", flat=True).distinct():
-                count, _ = super(CommentQuerySet, self.filter(task=task_id)).delete()
-                _uncount(task_id, count)
-                deleted += count
+        """Delete the comments and uncount them, in the same queries however many tasks."""
+        connection = connections[self.db]
+        if connection.vendor != "postgresql":
+            return self._uncount_then_delete()
+        selected, params = self.order_by().values("pk").query.get_compiler(self.db).as_sql()
+        with connection.cursor() as cursor:
+            cursor.execute(DELETE_AND_UNCOUNT.format(selected=selected), params)
+            (deleted,) = cursor.fetchone()
         return deleted, ({self.model._meta.label: deleted} if deleted else {})
+
+    def _uncount_then_delete(self):
+        # SQLite lets one writer at a time in, so nothing changes between the two.
+        per_task = (
+            self.filter(task=OuterRef("pk"))
+            .order_by()
+            .values("task")
+            .annotate(count=Count("pk"))
+            .values("count")
+        )
+        with transaction.atomic(using=self.db):
+            Task.objects.using(self.db).filter(pk__in=self.values("task")).update(
+                comments_count=F("comments_count") - Subquery(per_task)
+            )
+            return super().delete()
 
 
 class Comment(models.Model):

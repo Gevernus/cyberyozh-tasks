@@ -2,6 +2,8 @@ import importlib
 
 import pytest
 from django.apps import apps as django_apps
+from django.db import connection
+from django.test.utils import CaptureQueriesContext
 
 from apps.tasks.models import Comment, StatusTransitionError, Task
 from tests.factories import CommentFactory, TaskFactory, UserFactory
@@ -126,6 +128,19 @@ def test_deleting_comments_of_several_tasks_uncounts_each_task():
 
     assert deleted == (4, {"tasks.Comment": 4})
     assert [comments_count(task) for task in (busy, quiet, untouched)] == [0, 0, 1]
+
+
+def test_deleting_comments_takes_the_same_queries_however_many_tasks():
+    def queries_to_delete(tasks: int) -> int:
+        for task in TaskFactory.create_batch(tasks):
+            CommentFactory.create_batch(2, task=task)
+        selected = list(Comment.objects.values_list("pk", flat=True))
+        with CaptureQueriesContext(connection) as queries:
+            Comment.objects.filter(pk__in=selected).delete()
+        assert set(Task.objects.values_list("comments_count", flat=True)) == {0}
+        return len(queries)
+
+    assert queries_to_delete(1) == queries_to_delete(30) <= 4
 
 
 def test_a_comment_deleted_twice_is_uncounted_once():
