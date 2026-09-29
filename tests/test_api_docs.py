@@ -9,8 +9,14 @@ def test_docs_are_public(api_client, url_name):
     assert api_client.get(reverse(url_name)).status_code == 200
 
 
+def test_root_redirects_to_swagger_ui(client):
+    response = client.get("/")
+
+    assert response.status_code == 302
+    assert response["Location"] == reverse("swagger-ui")
+
+
 def test_schema_generates_without_warnings(tmp_path):
-    # --fail-on-warn turns any drf-spectacular warning (e.g. unresolved types) into an error.
     call_command("spectacular", "--validate", "--fail-on-warn", "--file", tmp_path / "s.yml")
 
 

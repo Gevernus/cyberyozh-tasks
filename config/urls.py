@@ -1,6 +1,7 @@
 from django.conf import settings
 from django.contrib import admin
 from django.urls import include, path
+from django.views.generic import RedirectView
 from drf_spectacular.views import (
     SpectacularAPIView,
     SpectacularRedocView,
@@ -11,6 +12,7 @@ from core.health import LivenessView, ReadinessView
 from core.metrics import metrics_view
 
 urlpatterns = [
+    path("", RedirectView.as_view(pattern_name="swagger-ui"), name="root"),
     path("api/health/", ReadinessView.as_view(), name="health"),
     path("api/health/live/", LivenessView.as_view(), name="health-live"),
     path("api/", include("apps.accounts.urls")),
