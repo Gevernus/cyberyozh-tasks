@@ -1,0 +1,14 @@
+Django>=5.2,<5.3
+djangorestframework>=3.16,<4
+djangorestframework-simplejwt>=5.5,<6
+drf-spectacular>=0.28,<1
+django-filter>=25.1
+dj-database-url>=2.3,<4
+psycopg[binary]>=3.2,<4
+gunicorn>=23,<24
+whitenoise>=6.9,<7
+redis>=5.2,<9
+python-json-logger>=3.3,<5
+django-prometheus>=2.4,<3
+sentry-sdk>=2.30,<3
+drf-spectacular-sidecar>=2025.1

@@ -22,7 +22,7 @@ jobs:
           python-version: "3.12"
           cache: pip
           cache-dependency-path: requirements*.txt
-      - run: pip install -r requirements-dev.txt
+      - run: pip install --require-hashes -r requirements-dev.txt
       - run: ruff check .
       - run: ruff format --check .
 
@@ -51,7 +51,7 @@ jobs:
           python-version: "3.12"
           cache: pip
           cache-dependency-path: requirements*.txt
-      - run: pip install -r requirements-dev.txt
+      - run: pip install --require-hashes -r requirements-dev.txt
       - run: python manage.py check
       - run: python manage.py makemigrations --check --dry-run
       - run: python manage.py spectacular --validate --fail-on-warn --file /dev/null
