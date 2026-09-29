@@ -118,7 +118,7 @@ def test_comments_count_follows_creation_and_deletion():
     assert comments_count(task) == 0
 
 
-def test_deleting_comments_of_several_tasks_uncounts_each_task():
+def test_deleting_comments_of_several_tasks_decrements_each_task():
     busy, quiet, untouched = TaskFactory.create_batch(3)
     CommentFactory.create_batch(3, task=busy)
     CommentFactory(task=quiet)
@@ -143,7 +143,7 @@ def test_deleting_comments_takes_the_same_queries_however_many_tasks():
     assert queries_to_delete(1) == queries_to_delete(30) <= 4
 
 
-def test_a_comment_deleted_twice_is_uncounted_once():
+def test_a_comment_deleted_twice_is_decremented_once():
     comment, _ = CommentFactory.create_batch(2)
     CommentFactory(task=comment.task)
     stale = Comment.objects.get(pk=comment.pk)
@@ -154,7 +154,7 @@ def test_a_comment_deleted_twice_is_uncounted_once():
     assert comments_count(comment.task) == 1
 
 
-def test_deleting_a_user_uncounts_their_comments_on_other_tasks():
+def test_deleting_a_user_decrements_counts_for_their_comments_on_other_tasks():
     commenter = UserFactory()
     first, second = TaskFactory.create_batch(2)
     CommentFactory.create_batch(2, task=first, author=commenter)

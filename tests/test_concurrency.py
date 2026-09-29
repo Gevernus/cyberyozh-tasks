@@ -99,7 +99,7 @@ def test_concurrent_comments_are_all_counted(user):
     assert task.comments_count == writers
 
 
-def test_comments_deleted_by_two_requests_at_once_are_uncounted_once():
+def test_comments_deleted_by_two_requests_at_once_are_decremented_once():
     task = TaskFactory()
     selected = [comment.pk for comment in CommentFactory.create_batch(3, task=task)]
     CommentFactory(task=task)

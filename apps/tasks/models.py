@@ -23,7 +23,6 @@ class Task(models.Model):
         HIGH = 3, "High"
 
     title = models.CharField(max_length=255)
-    # Bounded so that one request cannot store an arbitrarily large row.
     description = models.TextField(blank=True, max_length=10_000)
     status = models.CharField(max_length=20, choices=Status.choices, default=Status.TODO)
     priority = models.PositiveSmallIntegerField(choices=Priority.choices, default=Priority.MEDIUM)
@@ -43,8 +42,8 @@ class Task(models.Model):
         related_name="assigned_tasks",
     )
     completed_at = models.DateTimeField(null=True, blank=True, editable=False)
-    # Maintained by Comment, see there. Stored so that lists need no COUNT per task.
-    # The database default lets code deployed before the column existed keep inserting.
+    # Maintained by Comment. The database default keeps inserts from code that
+    # predates the column working.
     comments_count = models.PositiveIntegerField(default=0, db_default=0, editable=False)
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
@@ -52,9 +51,8 @@ class Task(models.Model):
     class Meta:
         ordering = ["-created_at", "-id"]
         indexes = [
-            # The task list: newest first, paginated by cursor. The same order within
-            # one assignee or author serves "my tasks" pages without sorting; these
-            # also stand in for the plain foreign key indexes.
+            # Cursor order, overall and per assignee or author; the latter two also
+            # serve as the foreign key indexes.
             models.Index(fields=["-created_at", "-id"], name="task_newest_first_idx"),
             models.Index(
                 fields=["assignee", "-created_at", "-id"], name="task_assignee_newest_idx"
@@ -67,16 +65,14 @@ class Task(models.Model):
         return self.title
 
     def save(self, *args, **kwargs):
-        # Keep completed_at consistent with status no matter how status changed
-        # (complete/reopen actions, a PATCH of status, the admin).
+        # completed_at follows status however it changed: an action, a PATCH, the admin.
         if self.is_completed and self.completed_at is None:
             self.completed_at = timezone.now()
         elif not self.is_completed:
             self.completed_at = None
         update_fields = kwargs.get("update_fields")
         if update_fields is None and not self._state.adding:
-            # A full save must not write back a comment counter read earlier: comments
-            # added meanwhile would be lost.
+            # A full save never writes back a comment counter read earlier.
             update_fields = [
                 field.name
                 for field in self._meta.concrete_fields
@@ -108,17 +104,26 @@ class Task(models.Model):
             self.save(update_fields=["status", "updated_at"])
 
     def _refresh_locked(self) -> None:
-        # Check the state as committed, holding the row lock until the transaction
-        # ends, so concurrent complete/reopen calls on one task run one after another.
+        # The row stays locked until the transaction ends, so concurrent status
+        # changes of one task run one after another.
         self.refresh_from_db(from_queryset=Task.objects.select_for_update())
 
 
-# One statement: each task is uncounted by the rows this DELETE removed, so
-# comments deleted by two requests at once are uncounted once.
-DELETE_AND_UNCOUNT = """
+def comments_per_task(comments: models.QuerySet) -> Subquery:
+    """How many of ``comments`` belong to the task of the outer query."""
+    return Subquery(
+        comments.filter(task=OuterRef("pk"))
+        .order_by()
+        .values("task")
+        .annotate(count=Count("pk"))
+        .values("count")
+    )
+
+
+DELETE_AND_DECREMENT = """
 WITH deleted AS (
     DELETE FROM tasks_comment WHERE id IN ({selected}) RETURNING task_id
-), uncounted AS (
+), decremented AS (
     UPDATE tasks_task SET comments_count = comments_count - removed.amount
     FROM (SELECT task_id, count(*) AS amount FROM deleted GROUP BY task_id) AS removed
     WHERE tasks_task.id = removed.task_id
@@ -129,28 +134,20 @@ SELECT count(*) FROM deleted
 
 class CommentQuerySet(models.QuerySet):
     def delete(self):
-        """Delete the comments and uncount them, in the same queries however many tasks."""
         connection = connections[self.db]
         if connection.vendor != "postgresql":
-            return self._uncount_then_delete()
+            return self._decrement_then_delete()
         selected, params = self.order_by().values("pk").query.get_compiler(self.db).as_sql()
         with connection.cursor() as cursor:
-            cursor.execute(DELETE_AND_UNCOUNT.format(selected=selected), params)
+            cursor.execute(DELETE_AND_DECREMENT.format(selected=selected), params)
             (deleted,) = cursor.fetchone()
         return deleted, ({self.model._meta.label: deleted} if deleted else {})
 
-    def _uncount_then_delete(self):
-        # SQLite lets one writer at a time in, so nothing changes between the two.
-        per_task = (
-            self.filter(task=OuterRef("pk"))
-            .order_by()
-            .values("task")
-            .annotate(count=Count("pk"))
-            .values("count")
-        )
+    def _decrement_then_delete(self):
+        # SQLite admits one writer at a time, so nothing changes between the two.
         with transaction.atomic(using=self.db):
             Task.objects.using(self.db).filter(pk__in=self.values("task")).update(
-                comments_count=F("comments_count") - Subquery(per_task)
+                comments_count=F("comments_count") - comments_per_task(self)
             )
             return super().delete()
 
@@ -158,15 +155,11 @@ class CommentQuerySet(models.QuerySet):
 class Comment(models.Model):
     """A comment on a task.
 
-    Task.comments_count follows comments with atomic F() updates in the same
-    transaction: +1 in save() on creation; on deletion, minus the rows the DELETE
-    actually removed, so a comment deleted by two requests at once is uncounted once.
-    Deleting a task needs no update, and deleting a user uncounts their comments on
-    other tasks in one UPDATE (see the pre_delete handler below).
-
-    No delete signal is connected to Comment, and none should be: it would make
-    every cascade (a task, a user) load its comments and handle them one by one.
-    bulk_create bypasses the counter; callers must set it themselves.
+    Task.comments_count follows comments in the same transaction: +1 on creation,
+    minus the rows a DELETE actually removed on deletion, so a comment deleted by
+    two requests at once counts once. Deletion never loads comments one by one,
+    which is why no delete signal is connected to Comment. bulk_create bypasses
+    the counter.
     """
 
     task = models.ForeignKey(
@@ -184,8 +177,7 @@ class Comment(models.Model):
     class Meta:
         ordering = ["created_at"]
         indexes = [
-            # A task's comments in cursor order, a page without sorting; also stands in
-            # for the plain foreign key index.
+            # Cursor order within a task; also serves as the foreign key index.
             models.Index(
                 fields=["task", "created_at", "id"], name="comment_task_oldest_first_idx"
             ),
@@ -205,27 +197,18 @@ class Comment(models.Model):
     def delete(self, *args, **kwargs):
         with transaction.atomic():
             deleted, per_model = super().delete(*args, **kwargs)
-            _uncount(self.task_id, deleted)
+            if deleted:
+                Task.objects.filter(pk=self.task_id).update(
+                    comments_count=F("comments_count") - deleted
+                )
         return deleted, per_model
 
 
-def _uncount(task_id: int, count: int) -> None:
-    if count:
-        Task.objects.filter(pk=task_id).update(comments_count=F("comments_count") - count)
-
-
 @receiver(pre_delete, sender=settings.AUTH_USER_MODEL)
-def _uncount_comments_of_deleted_user(sender, instance, **kwargs) -> None:
+def _decrement_comments_of_deleted_user(sender, instance, **kwargs) -> None:
     # The cascade deletes the user's comments without Comment.delete(). Their own
-    # tasks are skipped: those go too.
+    # tasks are skipped: those are deleted too.
     theirs = Comment.objects.filter(author=instance)
-    per_task = (
-        theirs.filter(task=OuterRef("pk"))
-        .order_by()
-        .values("task")
-        .annotate(count=Count("pk"))
-        .values("count")
-    )
     Task.objects.filter(pk__in=theirs.values("task")).exclude(author=instance).update(
-        comments_count=F("comments_count") - Subquery(per_task)
+        comments_count=F("comments_count") - comments_per_task(theirs)
     )
