@@ -44,17 +44,23 @@
 			refresh 5s
 		}
 		lb_policy least_conn
-		# A replica that is down or restarting is skipped: the request is retried on
-		# another one for up to 5s. Only failed connections are retried.
+		# A request that cannot reach a replica is retried on another for up to 5s.
+		# Retries happen after connection failures, and for GET after any failure.
 		lb_try_duration 5s
 		lb_try_interval 250ms
-		# Caddy runs no active health checks for dynamic upstreams; a replica that
-		# fails a request is taken out for 30s.
-		fail_duration 30s
-		max_fails 3
-		unhealthy_status 502 504
+		# Caddy runs no active health checks for dynamic upstreams. Passively, a
+		# replica with 5 failed requests within 10s is skipped for the rest of it.
+		fail_duration 10s
+		max_fails 5
 
-		# The client address as Caddy saw it, never a value sent by the client.
+		transport http {
+			# Shorter than gunicorn's keepalive (5s): the proxy drops an idle
+			# connection before the app does, so it never reuses a closed one.
+			keepalive 3s
+		}
+
+		# The client address as Caddy saw it, never a value sent by the client. Caddy
+		# does this by default; pinned here so it holds even if trusted_proxies is set.
 		header_up X-Forwarded-For {remote_host}
 	}
 
