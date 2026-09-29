@@ -71,6 +71,23 @@ services:
     # Longer than gunicorn's graceful_timeout so in-flight requests can finish.
     stop_grace_period: 40s
 
+  # Every refresh token issued stays in token_blacklist_outstandingtoken; expired ones
+  # are deleted once a day. The query scans the table, hence no statement timeout.
+  flush-tokens:
+    <<: *app
+    command: ["sh", "-c", "while true; do python manage.py flushexpiredtokens; sleep 86400; done"]
+    environment:
+      <<: *app-environment
+      DJANGO_DB_STATEMENT_TIMEOUT_MS: "0"
+    # Forwards SIGTERM to the shell, which as PID 1 would ignore it.
+    init: true
+    healthcheck:
+      disable: true
+    restart: unless-stopped
+    depends_on:
+      migrate:
+        condition: service_completed_successfully
+
   caddy:
     image: caddy:2-alpine
     restart: unless-stopped

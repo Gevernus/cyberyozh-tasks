@@ -30,6 +30,15 @@ def test_migrations_run_once_before_web():
     assert "command" not in SERVICES["web"]
 
 
+def test_expired_tokens_are_flushed_daily():
+    flush = SERVICES["flush-tokens"]
+
+    assert "python manage.py flushexpiredtokens; sleep 86400" in flush["command"][-1]
+    assert flush["restart"] == "unless-stopped"
+    assert flush["healthcheck"] == {"disable": True}
+    assert flush["depends_on"]["migrate"] == {"condition": "service_completed_successfully"}
+
+
 @pytest.mark.parametrize("volume", ["caddy_data", "caddy_config", "postgres_data"])
 def test_state_lives_in_named_volumes(volume):
     assert volume in COMPOSE["volumes"]

@@ -23,6 +23,7 @@
                   лимит тела 1 МБ,
                   балансировка, /metrics закрыт
 migrate — одноразовый контейнер: `manage.py migrate` до старта web
+flush-tokens — раз в сутки удаляет истёкшие refresh-токены
 ```
 
 Наружу опубликован только `caddy`. `web`, `db` и `redis` доступны лишь в сети compose.
@@ -184,8 +185,14 @@ PgBouncer по умолчанию отвергает, а в режиме `transa
 | `?search=` редкого слова | GIN pg_trgm по `UPPER(title/description)` | 0,1 мс (без индекса 730 мс) |
 | комментарии задачи со 100 тыс. комментариев, любая страница (курсор) | `(task, created_at)`, ничья по `id` — incremental sort 21 строки | 0,05 мс (с `?page=`: `COUNT` 12 мс + последняя страница 73 мс, сортировка на диске) |
 
-**Токены.** Каждый выданный refresh-токен — строка в `token_blacklist_outstandingtoken`.
-Раз в сутки: `docker compose run --rm migrate python manage.py flushexpiredtokens`.
+**Токены.** Каждый выданный refresh-токен — строка в `token_blacklist_outstandingtoken`,
+отозванный — ещё и в `token_blacklist_blacklistedtoken`. Истёкшие (старше
+`JWT_REFRESH_TOKEN_DAYS`) удаляет сервис `flush-tokens`: `manage.py flushexpiredtokens` при
+старте и дальше раз в сутки, без `statement_timeout` — у `expires_at` нет индекса, запрос
+читает всю таблицу. Так в ней остаются токены не больше чем за `JWT_REFRESH_TOKEN_DAYS` + 1
+дней. Сервис должен быть `running` (`docker compose ps flush-tokens`), команда ничего не
+печатает, в `logs` — только ошибки. Разово: `docker compose run --rm migrate python manage.py
+flushexpiredtokens`.
 
 **Массовые операции в админке** ограничены таймаутом воркера gunicorn (30 с) и
 `statement_timeout` (5 с). Удаление комментариев — один SQL-запрос при любом числе задач
@@ -350,5 +357,5 @@ k6 run -e BASE_URL=https://$DOMAIN -e PASSWORD="$LOAD_PASSWORD" \
 | сертификат не выпускается | `logs caddy` (`acme`, `rateLimited`) | DNS → хост, порты 80/443, не удалять `caddy_data`; временно `CADDY_TLS=internal` |
 | `migrate` завершился с ошибкой, web не стартует | `docker compose logs migrate` | исправить причину, `docker compose up -d --wait`: миграции с `atomic = False` перезапускаемы — `INVALID`-индекс пересоздаётся, уже добавленная колонка не добавляется повторно, счётчики пересчитываются заново. `migrate --fake` не применять: пропущенное заполнение никто не доделает |
 | `comments_count` задачи не совпадает с числом комментариев | `SELECT count(*) FROM tasks_comment WHERE task_id = …` | `docker compose run --rm migrate python manage.py reconcile_comments_count` |
-| таблица outstanding-токенов растёт | `SELECT count(*) FROM token_blacklist_outstandingtoken` | `manage.py flushexpiredtokens` по расписанию |
+| таблица outstanding-токенов растёт | `docker compose ps flush-tokens`, `logs flush-tokens`; `SELECT count(*) FROM token_blacklist_outstandingtoken WHERE expires_at < now()` | `docker compose up -d flush-tokens` |
 | смена `DJANGO_SECRET_KEY` | | все JWT и сессии станут недействительны: `up -d` в окно обслуживания |
