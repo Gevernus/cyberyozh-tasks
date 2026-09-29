@@ -3,7 +3,9 @@ import os
 import secrets
 
 from django.contrib.auth import get_user_model
-from django.core.management.base import BaseCommand
+from django.contrib.auth.password_validation import validate_password
+from django.core.exceptions import ValidationError
+from django.core.management.base import BaseCommand, CommandError
 from django.db import transaction
 from django.utils import timezone
 
@@ -27,7 +29,15 @@ class Command(BaseCommand):
 
     @transaction.atomic
     def handle(self, *args, **options):
-        password = options["password"] or secrets.token_urlsafe(12)
+        password = options["password"]
+        if password is None:
+            password = secrets.token_urlsafe(12)
+        else:
+            # An empty DEMO_PASSWORD is a mistake, not a request for a random password.
+            try:
+                validate_password(password)
+            except ValidationError as exc:
+                raise CommandError(f"Demo password rejected: {' '.join(exc.messages)}") from exc
         users = {name: self._upsert_user(name, password) for name in DEMO_USERS}
         today = timezone.localdate()
 
@@ -66,7 +76,7 @@ class Command(BaseCommand):
 
         self.stdout.write(self.style.SUCCESS(f"Demo data ready: {Task.objects.count()} tasks."))
         self.stdout.write(f"Users: {', '.join(DEMO_USERS)}")
-        if not options["password"]:
+        if options["password"] is None:
             self.stdout.write(f"Password: {password}")
 
     @staticmethod

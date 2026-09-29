@@ -2,7 +2,7 @@ import re
 from io import StringIO
 
 import pytest
-from django.core.management import call_command
+from django.core.management import CommandError, call_command
 
 from apps.tasks.models import Comment, Task
 
@@ -59,3 +59,13 @@ def test_reads_the_password_from_the_environment(django_user_model, monkeypatch)
 
     assert "Env-pass-42" not in output
     assert django_user_model.objects.get(username="carol").check_password("Env-pass-42")
+
+
+@pytest.mark.parametrize("password", ["", "short"])
+def test_rejects_an_empty_or_weak_password(django_user_model, monkeypatch, password):
+    monkeypatch.setenv("DEMO_PASSWORD", password)
+
+    with pytest.raises(CommandError, match="Demo password rejected"):
+        seed()
+
+    assert not django_user_model.objects.exists()
