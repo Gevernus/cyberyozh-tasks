@@ -1,7 +1,5 @@
-# TLS edge for the API. Environment:
-#   DOMAIN     public host name; Caddy obtains its certificate from Let's Encrypt
-#   CADDY_TLS  "acme" (default) or "internal": a certificate from Caddy's own CA,
-#              for CI and local runs where Let's Encrypt cannot reach the host
+# DOMAIN: the public host name. CADDY_TLS: acme (Let's Encrypt, the default) or
+# internal (Caddy's own CA, for CI and local runs).
 
 (tls_acme) {
 }
@@ -19,13 +17,12 @@
 		max_size 1MB
 	}
 
-	# Internal only: Prometheus scrapes web:8000/metrics inside the network.
+	# Scraped as web:8000/metrics inside the network.
 	@metrics path /metrics /metrics/*
 	respond @metrics 404
 
-	# "?" fills a header only where Django did not set it, e.g. on responses Caddy
-	# makes itself (413, 502), so Django's HSTS options stay in force.
-	# The CSP admits Swagger UI and Redoc; JSON ignores it.
+	# "?" sets a header only where Django did not, e.g. on Caddy's own 413 and 502.
+	# The CSP admits Swagger UI and Redoc.
 	header {
 		defer
 		?Strict-Transport-Security "max-age=31536000"
@@ -38,29 +35,25 @@
 	}
 
 	reverse_proxy {
-		# Every web replica (docker compose up --scale web=N) is a separate upstream,
-		# re-resolved from Docker's DNS.
+		# Every web replica, re-resolved from Docker's DNS.
 		dynamic a web 8000 {
 			refresh 5s
 		}
 		lb_policy least_conn
-		# A request that cannot reach a replica is retried on another for up to 5s.
-		# Retries happen after connection failures, and for GET after any failure.
+		# Retry on another replica for up to 5s: after connection failures, and for
+		# GET after any failure.
 		lb_try_duration 5s
 		lb_try_interval 250ms
-		# Caddy runs no active health checks for dynamic upstreams. Passively, a
-		# replica with 5 failed requests within 10s is skipped for the rest of it.
+		# No active health checks for dynamic upstreams; 5 failures in 10s eject a replica.
 		fail_duration 10s
 		max_fails 5
 
 		transport http {
-			# Shorter than gunicorn's keepalive (5s): the proxy drops an idle
-			# connection before the app does, so it never reuses a closed one.
+			# Shorter than gunicorn's 5s, so Caddy never reuses a connection gunicorn closed.
 			keepalive 3s
 		}
 
-		# The client address as Caddy saw it, never a value sent by the client. Caddy
-		# does this by default; pinned here so it holds even if trusted_proxies is set.
+		# The client address as Caddy saw it, even if trusted_proxies is ever set.
 		header_up X-Forwarded-For {remote_host}
 	}
 

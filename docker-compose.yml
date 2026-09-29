@@ -1,7 +1,5 @@
-# Only caddy is reachable from outside; web, db and redis talk over the compose network.
-# Scale the API with `docker compose up -d --scale web=N`.
+# Only caddy publishes ports. Scale the API with `docker compose up -d --scale web=N`.
 
-# Docker keeps json-file logs forever by default; cap them per container.
 x-logging: &logging
   driver: json-file
   options:
@@ -15,7 +13,7 @@ x-app: &app
   environment: &app-environment
     DATABASE_URL: postgres://${POSTGRES_USER:-tasks}:${POSTGRES_PASSWORD:?set POSTGRES_PASSWORD in .env}@db:5432/${POSTGRES_DB:-tasks}
     REDIS_URL: redis://redis:6379/0
-    # localhost: the container healthcheck calls http://localhost:8000.
+    # localhost: for the container healthcheck.
     DJANGO_ALLOWED_HOSTS: ${DOMAIN:?set DOMAIN in .env},localhost,127.0.0.1
     DJANGO_CSRF_TRUSTED_ORIGINS: https://${DOMAIN}
 
@@ -40,7 +38,7 @@ services:
     image: redis:7-alpine
     restart: unless-stopped
     logging: *logging
-    # Holds only throttle counters: no persistence, bounded memory.
+    # Throttle counters only.
     command: redis-server --save "" --appendonly no --maxmemory 64mb --maxmemory-policy allkeys-lru
     healthcheck:
       test: ["CMD", "redis-cli", "ping"]
@@ -48,7 +46,6 @@ services:
       timeout: 5s
       retries: 10
 
-  # Applies migrations once per `up`, before any web replica starts.
   migrate:
     <<: *app
     command: ["python", "manage.py", "migrate", "--noinput"]
@@ -68,15 +65,13 @@ services:
         condition: service_completed_successfully
       redis:
         condition: service_healthy
-    # Longer than gunicorn's graceful_timeout so in-flight requests can finish.
+    # Longer than gunicorn's graceful_timeout.
     stop_grace_period: 40s
 
-  # Every refresh token issued stays in token_blacklist_outstandingtoken; expired ones
-  # are deleted once a day. The query scans the table, hence no statement timeout.
+  # Deletes expired refresh tokens daily. A success touches the heartbeat file; a
+  # failure waits five minutes, then exits for `restart` to retry.
   flush-tokens:
     <<: *app
-    # A successful run touches a heartbeat file; a failed or hour-long run waits five minutes
-    # before exiting so `restart` retries without hammering a database that is down.
     command:
       - sh
       - -c
@@ -88,10 +83,9 @@ services:
     environment:
       <<: *app-environment
       DJANGO_DB_STATEMENT_TIMEOUT_MS: "0"
-    # Forwards SIGTERM to the shell, which as PID 1 would ignore it.
+    # The shell as PID 1 would ignore SIGTERM.
     init: true
-    # Healthy while the last successful flush is under 25 hours old: a hung run turns the
-    # service unhealthy. `up --wait` needs a healthcheck here (start_interval: Engine 25+).
+    # Unhealthy once the last successful flush is 25 hours old.
     healthcheck:
       test: ["CMD-SHELL", "test -n \"$$(find /tmp/flushed -mmin -1500)\""]
       interval: 5m
@@ -115,8 +109,7 @@ services:
       - "443:443/udp"
     volumes:
       - ./deploy/Caddyfile:/etc/caddy/Caddyfile:ro
-      # Certificates and the ACME account. Never delete them (no `down -v`):
-      # Let's Encrypt allows 5 certificates per domain set per week.
+      # Certificates and the ACME account: never `down -v`.
       - caddy_data:/data
       - caddy_config:/config
     depends_on:
