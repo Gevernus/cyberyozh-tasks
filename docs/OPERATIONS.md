@@ -58,7 +58,6 @@ flush-tokens — раз в сутки удаляет истёкшие refresh-т
 | `THROTTLE_AUTH_ACCOUNT_RATE` | `100/hour` | | выдача токена — на имя пользователя со всех IP вместе |
 | `SENTRY_DSN` / `SENTRY_ENVIRONMENT` / `SENTRY_TRACES_SAMPLE_RATE` | пусто / `production` / `0` | | пустой DSN — Sentry выключен |
 | `GUNICORN_WORKERS` / `GUNICORN_THREADS` | `min(2·CPU+1, 4)` / `4` | | |
-| `FORWARDED_ALLOW_IPS` | `127.0.0.1,::1` | | чьим `X-Forwarded-*` доверяет сам gunicorn |
 | `PROMETHEUS_MULTIPROC_DIR` | задан в образе | | файлы метрик воркеров; очищается при старте gunicorn |
 
 ## Деплой

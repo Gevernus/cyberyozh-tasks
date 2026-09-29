@@ -31,9 +31,6 @@ max_requests_jitter = 100
 # Worker heartbeats on tmpfs: a slow overlay filesystem can stall workers into timeouts.
 worker_tmp_dir = "/dev/shm" if os.path.isdir("/dev/shm") else None  # nosec B108
 
-# Proxies allowed to set X-Forwarded-Proto for gunicorn itself.
-forwarded_allow_ips = os.environ.get("FORWARDED_ALLOW_IPS") or "127.0.0.1,::1"
-
 
 class JsonAccessLogger(Logger):
     """One JSON access record per request, with its request id."""

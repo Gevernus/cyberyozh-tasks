@@ -164,7 +164,6 @@ REST_FRAMEWORK = {
         "rest_framework.filters.OrderingFilter",
     ],
     "DEFAULT_PAGINATION_CLASS": "core.pagination.DefaultPagination",
-    "PAGE_SIZE": 20,
     "DEFAULT_THROTTLE_CLASSES": [
         "core.throttling.FailOpenAnonRateThrottle",
         "core.throttling.FailOpenUserRateThrottle",
