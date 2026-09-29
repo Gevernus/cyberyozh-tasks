@@ -1,0 +1,116 @@
+import datetime
+import os
+import random
+import secrets
+import time
+
+from django.contrib.auth import get_user_model
+from django.contrib.auth.hashers import make_password
+from django.contrib.auth.password_validation import validate_password
+from django.core.exceptions import ValidationError
+from django.core.management.base import BaseCommand, CommandError
+from django.db import connection, transaction
+from django.utils import timezone
+
+from apps.tasks.models import Comment, Task
+
+STATUSES = [Task.Status.TODO, Task.Status.IN_PROGRESS, Task.Status.DONE]
+STATUS_WEIGHTS = [5, 2, 3]
+# Most tasks have no comments, a few have several.
+COMMENT_COUNTS = [0, 1, 2, 3, 5]
+COMMENT_WEIGHTS = [60, 20, 10, 7, 3]
+
+
+class Command(BaseCommand):
+    help = (
+        "Fill the database with load-test data: USERS users named PREFIX00000... sharing "
+        "one password, and TASKS tasks with comments, inserted in batches. Adds to "
+        "existing data. For staging only. Run with DJANGO_DB_STATEMENT_TIMEOUT_MS=0."
+    )
+
+    def add_arguments(self, parser):
+        parser.add_argument("--tasks", type=int, default=1_000_000)
+        parser.add_argument("--users", type=int, default=1_000)
+        parser.add_argument("--prefix", default="load")
+        parser.add_argument(
+            "--password",
+            default=os.environ.get("LOAD_PASSWORD"),
+            help="Password of the load users (default: $LOAD_PASSWORD, else a random one).",
+        )
+        parser.add_argument("--batch-size", type=int, default=5_000)
+        parser.add_argument("--seed", type=int, default=None, help="Seed for repeatable data.")
+
+    def handle(self, *args, **options):
+        if options["tasks"] < 0 or options["users"] < 1 or options["batch_size"] < 1:
+            raise CommandError("--tasks must be >= 0, --users and --batch-size >= 1.")
+        password = options["password"]
+        if password is None:
+            password = secrets.token_urlsafe(12)
+            self.stdout.write(f"Password: {password}")
+        try:
+            validate_password(password)
+        except ValidationError as exc:
+            raise CommandError(f"Password rejected: {' '.join(exc.messages)}") from exc
+
+        # Test data, not secrets: a seedable generator keeps runs repeatable.
+        rng = random.Random(options["seed"])  # nosec B311
+        user_ids = self._create_users(options["prefix"], options["users"], password)
+        self._create_tasks(rng, user_ids, options["tasks"], options["batch_size"])
+        if connection.vendor == "postgresql":
+            # Fresh statistics, so the planner sees the new table size right away.
+            tables = ", ".join(
+                connection.ops.quote_name(model._meta.db_table) for model in (Task, Comment)
+            )
+            with connection.cursor() as cursor:
+                cursor.execute(f"ANALYZE {tables}")
+
+    def _create_users(self, prefix: str, count: int, password: str) -> list[int]:
+        user_model = get_user_model()
+        names = [f"{prefix}{number:05d}" for number in range(count)]
+        hashed = make_password(password)  # once: hashing a million times would take hours
+        with transaction.atomic():
+            user_model.objects.bulk_create(
+                [user_model(username=name, password=hashed) for name in names],
+                ignore_conflicts=True,
+            )
+            users = user_model.objects.filter(username__in=names)
+            users.update(password=hashed, is_active=True)
+            ids = list(users.values_list("pk", flat=True))
+        self.stdout.write(f"Users: {names[0]}..{names[-1]} ({len(ids)})")
+        return ids
+
+    def _create_tasks(self, rng: random.Random, user_ids: list[int], total: int, batch: int):
+        started = time.monotonic()
+        for offset in range(0, total, batch):
+            size = min(batch, total - offset)
+            tasks = [self._random_task(rng, user_ids) for _ in range(size)]
+            with transaction.atomic():
+                Task.objects.bulk_create(tasks)
+                # bulk_create bypasses Comment.save(), so the counters were set upfront.
+                Comment.objects.bulk_create(
+                    Comment(task=task, author_id=rng.choice(user_ids), text="Seeded comment.")
+                    for task in tasks
+                    for _ in range(task.comments_count)
+                )
+            done = offset + size
+            rate = done / max(time.monotonic() - started, 1e-6)
+            self.stdout.write(f"Tasks: {done}/{total} ({rate:,.0f}/s)")
+
+    @staticmethod
+    def _random_task(rng: random.Random, user_ids: list[int]) -> Task:
+        status = rng.choices(STATUSES, STATUS_WEIGHTS)[0]
+        due_date = None
+        if rng.random() < 0.7:
+            due_date = timezone.localdate() + datetime.timedelta(days=rng.randint(-30, 60))
+        return Task(
+            title=f"Load task {rng.getrandbits(32):08x}",
+            description="Generated by seed_bulk.",
+            status=status,
+            priority=rng.choice(Task.Priority.values),
+            due_date=due_date,
+            author_id=rng.choice(user_ids),
+            assignee_id=rng.choice(user_ids) if rng.random() < 0.7 else None,
+            # bulk_create bypasses Task.save(), which keeps completed_at in step.
+            completed_at=timezone.now() if status == Task.Status.DONE else None,
+            comments_count=rng.choices(COMMENT_COUNTS, COMMENT_WEIGHTS)[0],
+        )
