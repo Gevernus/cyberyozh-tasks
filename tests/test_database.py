@@ -61,6 +61,19 @@ def test_task_search_is_backed_by_trigram_indexes():
     assert all("gin_trgm_ops" in definition for definition in indexes.values())
 
 
+@pytest.mark.django_db
+def test_a_tasks_comments_have_one_index_in_cursor_order():
+    with connection.cursor() as cursor:
+        constraints = connection.introspection.get_constraints(cursor, "tasks_comment")
+
+    led_by_task = [
+        constraint["columns"]
+        for constraint in constraints.values()
+        if constraint["index"] and constraint["columns"][0] == "task_id"
+    ]
+    assert led_by_task == [["task_id", "created_at", "id"]]
+
+
 def test_indexes_on_existing_tables_are_built_without_blocking_writes():
     loader = MigrationLoader(None, ignore_no_migrations=True)
     blocking = [

@@ -169,7 +169,9 @@ class Comment(models.Model):
     bulk_create bypasses the counter; callers must set it themselves.
     """
 
-    task = models.ForeignKey(Task, on_delete=models.CASCADE, related_name="comments")
+    task = models.ForeignKey(
+        Task, on_delete=models.CASCADE, related_name="comments", db_index=False
+    )
     author = models.ForeignKey(
         settings.AUTH_USER_MODEL, on_delete=models.CASCADE, related_name="task_comments"
     )
@@ -181,7 +183,13 @@ class Comment(models.Model):
 
     class Meta:
         ordering = ["created_at"]
-        indexes = [models.Index(fields=["task", "created_at"])]
+        indexes = [
+            # A task's comments in cursor order, a page without sorting; also stands in
+            # for the plain foreign key index.
+            models.Index(
+                fields=["task", "created_at", "id"], name="comment_task_oldest_first_idx"
+            ),
+        ]
 
     def __str__(self) -> str:
         return f"Comment #{self.pk} on task #{self.task_id}"
