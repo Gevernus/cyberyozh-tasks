@@ -65,6 +65,7 @@ INSTALLED_APPS = [
     "rest_framework_simplejwt.token_blacklist",
     "django_filters",
     "drf_spectacular",
+    "drf_spectacular_sidecar",
     "django_prometheus",
     # Local
     "apps.accounts",
@@ -221,6 +222,10 @@ SPECTACULAR_SETTINGS = {
     "COMPONENT_SPLIT_REQUEST": True,
     "SCHEMA_PATH_PREFIX": r"/api/",
     "SWAGGER_UI_SETTINGS": {"persistAuthorization": True},
+    # Served from our static files, not a CDN, so the CSP can stay at 'self'.
+    "SWAGGER_UI_DIST": "SIDECAR",
+    "SWAGGER_UI_FAVICON_HREF": "SIDECAR",
+    "REDOC_DIST": "SIDECAR",
 }
 
 # --- Security --------------------------------------------------------------

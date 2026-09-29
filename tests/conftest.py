@@ -13,6 +13,15 @@ def _fast_password_hashing(settings):
 
 
 @pytest.fixture(autouse=True)
+def _static_files_without_manifest(settings):
+    """Tests run without collectstatic, so there is no manifest to look names up in."""
+    settings.STORAGES = {
+        **settings.STORAGES,
+        "staticfiles": {"BACKEND": "django.contrib.staticfiles.storage.StaticFilesStorage"},
+    }
+
+
+@pytest.fixture(autouse=True)
 def _fresh_throttle_counters():
     cache.clear()
     LOCAL_CACHE.clear()

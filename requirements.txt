@@ -11,3 +11,4 @@ redis>=5.2,<9
 python-json-logger>=3.3,<5
 django-prometheus>=2.4,<3
 sentry-sdk>=2.30,<3
+drf-spectacular-sidecar>=2025.1

@@ -4,7 +4,7 @@ from django.urls import include, path
 from drf_spectacular.views import (
     SpectacularAPIView,
     SpectacularRedocView,
-    SpectacularSwaggerView,
+    SpectacularSwaggerSplitView,
 )
 
 from config.health import LivenessView, ReadinessView
@@ -16,7 +16,8 @@ urlpatterns = [
     path("api/", include("apps.accounts.urls")),
     path("api/", include("apps.tasks.urls")),
     path("api/schema/", SpectacularAPIView.as_view(), name="schema"),
-    path("api/docs/", SpectacularSwaggerView.as_view(url_name="schema"), name="swagger-ui"),
+    # The split view serves its init script as a file: no inline script for the CSP to allow.
+    path("api/docs/", SpectacularSwaggerSplitView.as_view(url_name="schema"), name="swagger-ui"),
     path("api/redoc/", SpectacularRedocView.as_view(url_name="schema"), name="redoc"),
     path("metrics", metrics_view, name="metrics"),
 ]

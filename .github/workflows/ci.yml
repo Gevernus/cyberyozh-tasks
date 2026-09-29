@@ -68,18 +68,32 @@ jobs:
 
   docker:
     runs-on: ubuntu-latest
+    env:
+      # Caddy issues the certificate from its own CA (CADDY_TLS=internal in .env.example).
+      DOMAIN: tasks.ci.test
     steps:
       - uses: actions/checkout@v5
-      - name: Start the compose stack
+      - name: Validate the Caddyfile
+        run: >-
+          docker run --rm -e DOMAIN -v "$PWD/deploy/Caddyfile:/etc/caddy/Caddyfile:ro"
+          caddy:2-alpine caddy validate --config /etc/caddy/Caddyfile --adapter caddyfile
+      - name: Start the compose stack with two web replicas
         run: |
           cp .env.example .env
           sed -i "s/^DJANGO_SECRET_KEY=.*/DJANGO_SECRET_KEY=$(openssl rand -hex 32)/" .env
           sed -i "s/^POSTGRES_PASSWORD=.*/POSTGRES_PASSWORD=$(openssl rand -hex 16)/" .env
-          docker compose up --build --detach --wait --wait-timeout 180
-      - name: Smoke test
+          docker compose up --build --detach --wait --wait-timeout 300 --scale web=2
+          test "$(docker compose ps --quiet web | wc -l)" -eq 2
+      - name: Smoke test through Caddy
+        env:
+          CURL_OPTS: --insecure --resolve tasks.ci.test:443:127.0.0.1 --resolve tasks.ci.test:80:127.0.0.1
+        run: deploy/smoke.sh "$DOMAIN"
+      - name: Caddy spread requests over both replicas
+        # Proxied requests carry X-Forwarded-For; the container healthcheck does not.
         run: |
-          curl --fail --silent --show-error http://localhost:8000/api/health/live/
-          curl --fail --silent --show-error http://localhost:8000/api/health/ | jq --exit-status '.status == "ok"'
+          for replica in $(docker compose ps --quiet web); do
+            docker logs "$replica" | grep -q '"forwarded_for": "'
+          done
       - name: Container logs
         if: always()
         run: docker compose logs

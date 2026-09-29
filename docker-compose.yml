@@ -1,3 +1,16 @@
+# Only caddy is reachable from outside; web, db and redis talk over the compose network.
+# Scale the API with `docker compose up -d --scale web=N`.
+
+x-app: &app
+  build: .
+  env_file: .env
+  environment: &app-environment
+    DATABASE_URL: postgres://${POSTGRES_USER:-tasks}:${POSTGRES_PASSWORD:?set POSTGRES_PASSWORD in .env}@db:5432/${POSTGRES_DB:-tasks}
+    REDIS_URL: redis://redis:6379/0
+    # localhost: the container healthcheck calls http://localhost:8000.
+    DJANGO_ALLOWED_HOSTS: ${DOMAIN:?set DOMAIN in .env},localhost,127.0.0.1
+    DJANGO_CSRF_TRUSTED_ORIGINS: https://${DOMAIN}
+
 services:
   db:
     image: postgres:17-alpine
@@ -25,22 +38,50 @@ services:
       timeout: 5s
       retries: 10
 
-  web:
-    build: .
-    restart: unless-stopped
-    env_file: .env
+  # Applies migrations once per `up`, before any web replica starts.
+  migrate:
+    <<: *app
+    command: ["python", "manage.py", "migrate", "--noinput"]
     environment:
-      DATABASE_URL: postgres://${POSTGRES_USER:-tasks}:${POSTGRES_PASSWORD:?set POSTGRES_PASSWORD in .env}@db:5432/${POSTGRES_DB:-tasks}
-      REDIS_URL: redis://redis:6379/0
-    ports:
-      - "${HTTP_PORT:-8000}:8000"
+      <<: *app-environment
+      DJANGO_DB_STATEMENT_TIMEOUT_MS: "0"
+    restart: "no"
     depends_on:
       db:
         condition: service_healthy
+
+  web:
+    <<: *app
+    restart: unless-stopped
+    depends_on:
+      migrate:
+        condition: service_completed_successfully
       redis:
         condition: service_healthy
     # Longer than gunicorn's graceful_timeout so in-flight requests can finish.
     stop_grace_period: 40s
 
+  caddy:
+    image: caddy:2-alpine
+    restart: unless-stopped
+    environment:
+      DOMAIN: ${DOMAIN}
+      CADDY_TLS: ${CADDY_TLS:-acme}
+    ports:
+      - "80:80"
+      - "443:443"
+      - "443:443/udp"
+    volumes:
+      - ./deploy/Caddyfile:/etc/caddy/Caddyfile:ro
+      # Certificates and the ACME account. Never delete them (no `down -v`):
+      # Let's Encrypt allows 5 certificates per domain set per week.
+      - caddy_data:/data
+      - caddy_config:/config
+    depends_on:
+      web:
+        condition: service_healthy
+
 volumes:
   postgres_data:
+  caddy_data:
+  caddy_config:
