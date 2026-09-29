@@ -17,7 +17,7 @@ REST API для управления задачами на Django 5.2 и Django 
 python3 -m venv .venv && source .venv/bin/activate
 pip install --require-hashes -r requirements-dev.txt
 python manage.py migrate
-python manage.py seed_demo      # пользователи alice, bob, carol; пароль печатается
+python manage.py seed_demo      # alice, bob, carol; пароль печатается, если не задан DEMO_PASSWORD
 python manage.py runserver      # http://127.0.0.1:8000/ открывает Swagger UI
 ```
 
@@ -29,8 +29,8 @@ docker compose up -d --build --wait
 CURL_OPTS=--insecure deploy/smoke.sh localhost
 ```
 
-`.env.example` настроен на `DOMAIN=localhost` и сертификат от CA Caddy. Для публичного
-домена: `DOMAIN=tasks.example.com`, `CADDY_TLS=acme`.
+`.env.example` настроен на `DOMAIN=localhost` и сертификат от CA Caddy. Публичный домен —
+[docs/operations.md](docs/operations.md#первый-запуск).
 
 ## Тесты и проверки
 
@@ -63,10 +63,9 @@ Trivy по образу и smoke-тест стека с двумя реплик�
 | `GET, PUT, PATCH, DELETE /api/tasks/{id}/comments/{comment_id}/` | комментарий |
 | `GET /api/health/live/`, `/api/health/` | liveness и readiness |
 
-Списки задач и комментариев — по курсору (`next`, `previous`, без `count`). Фильтры
-задач: `status`, `priority`, `author`, `assignee`, `unassigned=true`, `due_after`,
-`due_before`, `search`. Менять задачу может только автор, `complete` и `reopen` — автор или
-исполнитель. Схема OpenAPI — `/api/schema/`.
+Фильтры задач: `status`, `priority`, `author`, `assignee`, `unassigned=true`, `due_after`,
+`due_before`, `search`. Схема OpenAPI — `/api/schema/`. Пагинация, права и формат ошибок —
+[docs/architecture.md](docs/architecture.md#решения-по-api).
 
 ## Документация
 

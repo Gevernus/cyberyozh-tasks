@@ -2,10 +2,10 @@
 
 ## Переменные окружения
 
-Читаются в `config/settings.py` и `gunicorn.conf.py`. В `.env.example` — только
-обязательные и отличающиеся от значений по умолчанию. Compose сам задаёт `DATABASE_URL`,
-`REDIS_URL`, `DJANGO_ALLOWED_HOSTS` (`$DOMAIN,localhost,127.0.0.1`) и
-`DJANGO_CSRF_TRUSTED_ORIGINS` (`https://$DOMAIN`).
+Читаются в `config/settings.py`, `gunicorn.conf.py` и командах `seed_demo`, `seed_bulk`.
+В `.env.example` — только обязательные и отличающиеся от значений по умолчанию. Для
+сервисов приложения compose задаёт `DATABASE_URL`, `REDIS_URL`, `DJANGO_ALLOWED_HOSTS` и
+`DJANGO_CSRF_TRUSTED_ORIGINS` сам, значения из `.env` для них не действуют.
 
 | Переменная | По умолчанию | Назначение |
 |---|---|---|
@@ -16,6 +16,8 @@
 | `POSTGRES_DB`, `POSTGRES_USER` | `tasks` | |
 | `DATABASE_URL` | SQLite `db.sqlite3` | вне compose |
 | `REDIS_URL` | пусто: кэш в памяти процесса | вне compose |
+| `DJANGO_ALLOWED_HOSTS` | `localhost,127.0.0.1` | вне compose; в compose — `$DOMAIN,localhost,127.0.0.1` |
+| `DJANGO_CSRF_TRUSTED_ORIGINS` | пусто | вне compose; в compose — `https://$DOMAIN` |
 | `DJANGO_DEBUG` | `True` | |
 | `DJANGO_ADMIN_ENABLED` | как `DJANGO_DEBUG` | у входа в админку нет лимита попыток: включать только за VPN или allowlist |
 | `DJANGO_ADMIN_URL` | `admin/` | |
@@ -28,27 +30,24 @@
 | `DJANGO_SECURE_PROXY_SSL_HEADER` | `0` | доверять `X-Forwarded-Proto` от прокси |
 | `DJANGO_SECURE_HSTS_SECONDS` | `31536000` | |
 | `DJANGO_SECURE_HSTS_INCLUDE_SUBDOMAINS`, `DJANGO_SECURE_HSTS_PRELOAD` | `0` | решение владельца домена |
-| `NUM_PROXIES` | `0` | прокси перед приложением; клиент — последний адрес `X-Forwarded-For` |
+| `NUM_PROXIES` | `0` | прокси перед приложением; клиент — `NUM_PROXIES`-й адрес с конца `X-Forwarded-For` |
 | `THROTTLE_ANON_RATE`, `THROTTLE_USER_RATE` | `100/hour`, `1000/hour` | |
 | `THROTTLE_AUTH_RATE` | `10/min` | |
 | `THROTTLE_AUTH_ACCOUNT_IP_RATE`, `THROTTLE_AUTH_ACCOUNT_RATE` | `10/hour`, `100/hour` | |
 | `SENTRY_DSN` | пусто: Sentry выключен | |
 | `SENTRY_ENVIRONMENT`, `SENTRY_TRACES_SAMPLE_RATE` | `production`, `0` | |
 | `GUNICORN_WORKERS`, `GUNICORN_THREADS` | `min(2·CPU+1, 4)`, `4` | |
+| `DEMO_PASSWORD` | пусто: случайный, печатается | пароль пользователей `seed_demo`, как `--password` |
+| `LOAD_PASSWORD` | пусто: случайный, печатается | пароль пользователей `seed_bulk`, как `--password` |
 
 ## Деплой
 
 ### Первый запуск
 
-```bash
-cp .env.example .env
-# DJANGO_SECRET_KEY, POSTGRES_PASSWORD; DOMAIN=tasks.example.com, CADDY_TLS=acme
-docker compose up -d --build --wait
-deploy/smoke.sh tasks.example.com
-```
-
-Домен указывает на хост, порты 80 и 443 открыты. Порядок старта: `db`, `redis` →
-`migrate` (код 0) → `web` (healthy) → `caddy`.
+Команды — как в [README](../README.md#быстрый-старт), но в `.env` — `DOMAIN=tasks.example.com`
+и `CADDY_TLS=acme`, а smoke-тест — `deploy/smoke.sh tasks.example.com` без `CURL_OPTS`.
+Домен указывает на хост, порты 80 и 443 открыты. Порядок старта: `db`, `redis` → `migrate`
+(код 0) → `web` (healthy) → `caddy`.
 
 ### Обновление
 
@@ -59,11 +58,14 @@ docker compose up -d --wait
 docker compose run --rm migrate python manage.py reconcile_comments_count
 ```
 
+Если `web` масштабирован, передавайте `--scale web=N` в каждый `docker compose up`, иначе
+Compose оставит одну реплику.
+
 `up --wait` возвращается, когда все реплики `web` заменены. После этого
 `reconcile_comments_count` досчитывает комментарии, которые успел добавить код без
-счётчика. Команда идёт пачками по 1000 задач, каждая — короткая транзакция, записывает
-только расходящиеся счётчики и печатает их число. Безопасна на живой базе; на 200 тыс.
-задач — около 2 с.
+счётчика. Команда идёт диапазонами по 1000 id (`--batch-size`), каждый — короткая
+транзакция, записывает только расходящиеся счётчики и печатает их число. Безопасна на живой
+базе; на 200 тыс. задач и 152 тыс. комментариев — 1–2 с.
 
 ### Остановка
 
@@ -76,9 +78,9 @@ docker compose run --rm migrate python manage.py reconcile_comments_count
 Миграции совместимы со старым кодом (новые колонки — с `db_default`), поэтому старые
 реплики работают, пока `migrate` меняет схему. Индексы на существующих таблицах строятся и
 удаляются `CONCURRENTLY`, заполнение новых колонок идёт короткими пачками; такие миграции
-неатомарны (`atomic = False`) и повторяемы. Если `migrate` упал — исправить причину и
-запустить снова (`docker compose up -d --wait`). `migrate --fake` не применять: пропущенное
-заполнение никто не доделает. `migrate` работает без `statement_timeout`.
+неатомарны (`atomic = False`) и повторяемы: упавший `migrate` запускают снова.
+`migrate --fake` не применять: пропущенное заполнение придётся доделывать вручную (для
+`comments_count` — `reconcile_comments_count`).
 
 ## TLS
 
@@ -117,8 +119,8 @@ docker compose run --rm migrate python manage.py reconcile_comments_count
 ## Массовые удаления
 
 Удаление комментариев в админке — один запрос, но админка загружает выбранные объекты, а
-запрос ограничен `statement_timeout`. Крупные чистки — из одноразового контейнера без
-таймаута:
+запрос ограничен `statement_timeout`. Крупные чистки — из одноразового контейнера
+`migrate` (`DJANGO_DB_STATEMENT_TIMEOUT_MS=0`):
 
 ```bash
 docker compose run --rm migrate python manage.py shell -c \
@@ -142,7 +144,7 @@ pip-compile --generate-hashes --allow-unsafe --strip-extras --output-file=requir
 | readiness `503` | `docker compose ps db`, `logs db`, диск | поднять БД; `web` перезапускать не нужно |
 | `502`/`503` от Caddy | `docker compose ps web`, `logs web` | `docker compose up -d --wait` |
 | рост 5xx | `logs web` по `request_id`, Sentry | |
-| `WARNING Account throttled` | поле `account` — sha256 имени: `printf %s alice \| sha256sum`; `forwarded_for` в access-логе | закрыть адреса в Caddy или файрволе |
+| `WARNING Account throttled` | поле `account` — sha256 имени после NFKC и `casefold` (в нижнем регистре): `printf %s alice \| sha256sum`; `forwarded_for` в access-логе | закрыть адреса в Caddy или файрволе |
 | `canceling statement due to statement timeout` | запрос в логе, `EXPLAIN ANALYZE` | индекс или ограничение запроса |
 | сертификат не выпускается | `logs caddy` | DNS, порты 80/443, том `caddy_data`; временно `CADDY_TLS=internal` |
 | `migrate` упал, `web` не стартует | `logs migrate` | исправить причину, `docker compose up -d --wait` |
