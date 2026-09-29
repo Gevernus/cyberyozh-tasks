@@ -23,7 +23,8 @@ class Task(models.Model):
         HIGH = 3, "High"
 
     title = models.CharField(max_length=255)
-    description = models.TextField(blank=True)
+    # Bounded so that one request cannot store an arbitrarily large row.
+    description = models.TextField(blank=True, max_length=10_000)
     status = models.CharField(max_length=20, choices=Status.choices, default=Status.TODO)
     priority = models.PositiveSmallIntegerField(choices=Priority.choices, default=Priority.MEDIUM)
     due_date = models.DateField(null=True, blank=True)
@@ -125,7 +126,7 @@ class Comment(models.Model):
     author = models.ForeignKey(
         settings.AUTH_USER_MODEL, on_delete=models.CASCADE, related_name="task_comments"
     )
-    text = models.TextField()
+    text = models.TextField(max_length=2_000)
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
 

@@ -323,3 +323,18 @@ def test_assign_via_patch(auth_client, user, other_user):
 
     assert response.status_code == status.HTTP_200_OK
     assert response.data["assignee"]["username"] == other_user.username
+
+
+# --- Limits -------------------------------------------------------------------
+
+
+@pytest.mark.parametrize(("field", "limit"), [("title", 255), ("description", 10_000)])
+def test_task_text_fields_are_bounded(auth_client, field, limit):
+    payload = {"title": "Bounded", field: "x" * limit}
+    assert auth_client.post(LIST_URL, payload).status_code == status.HTTP_201_CREATED
+
+    payload[field] = "x" * (limit + 1)
+    response = auth_client.post(LIST_URL, payload)
+
+    assert response.status_code == status.HTTP_400_BAD_REQUEST
+    assert field in response.data
