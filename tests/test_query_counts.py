@@ -45,10 +45,21 @@ def test_comment_list(auth_client, django_assert_num_queries):
     task = TaskFactory()
     CommentFactory.create_batch(ROWS, task=task)
 
-    with django_assert_num_queries(3):  # the task, COUNT, comments joined with authors
+    with django_assert_num_queries(2):  # the task, comments joined with authors
         response = auth_client.get(reverse("task-comment-list", args=[task.pk]))
 
     assert len(response.data["results"]) == ROWS
+
+
+def test_comment_list_next_page(auth_client, django_assert_num_queries):
+    task = TaskFactory()
+    CommentFactory.create_batch(ROWS, task=task)
+    first = auth_client.get(reverse("task-comment-list", args=[task.pk]), {"page_size": 5})
+
+    with django_assert_num_queries(2):
+        response = auth_client.get(first.data["next"])
+
+    assert len(response.data["results"]) == 5
 
 
 def test_comment_detail(auth_client, django_assert_num_queries):

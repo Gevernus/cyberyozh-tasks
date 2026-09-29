@@ -174,6 +174,7 @@ PgBouncer по умолчанию отвергает, а в режиме `transa
 | список, страница в середине (курсор) | `task_newest_first_idx` | 0,2 мс |
 | `?assignee=` / `?author=` | `task_assignee_newest_idx` / `task_author_newest_idx` | 0,1 мс |
 | `?search=` редкого слова | GIN pg_trgm по `UPPER(title/description)` | 0,1 мс (без индекса 730 мс) |
+| комментарии задачи со 100 тыс. комментариев, любая страница (курсор) | `(task, created_at)`, ничья по `id` — incremental sort 21 строки | 0,05 мс (с `?page=`: `COUNT` 12 мс + последняя страница 73 мс, сортировка на диске) |
 
 **Токены.** Каждый выданный refresh-токен — строка в `token_blacklist_outstandingtoken`.
 Раз в сутки: `docker compose run --rm migrate python manage.py flushexpiredtokens`.

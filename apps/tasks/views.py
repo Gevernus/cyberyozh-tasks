@@ -12,7 +12,7 @@ from rest_framework.permissions import IsAuthenticated
 from rest_framework.request import Request
 from rest_framework.response import Response
 
-from config.pagination import NewestFirstCursorPagination
+from config.pagination import NewestFirstCursorPagination, OldestFirstCursorPagination
 
 from .filters import TaskFilter
 from .models import Comment, StatusTransitionError, Task
@@ -116,6 +116,7 @@ class CommentViewSet(viewsets.ModelViewSet):
     serializer_class = CommentSerializer
     permission_classes = [IsAuthenticated, IsAuthorOrReadOnly]
     filter_backends = []
+    pagination_class = OldestFirstCursorPagination
 
     @cached_property
     def task(self) -> Task:

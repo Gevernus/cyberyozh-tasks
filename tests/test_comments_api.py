@@ -46,6 +46,19 @@ def test_list_returns_only_comments_of_the_task_in_chronological_order(auth_clie
     assert [item["id"] for item in response.data["results"]] == [first.pk, second.pk]
 
 
+def test_comments_are_paginated_by_cursor_oldest_first(auth_client):
+    task = TaskFactory()
+    comments = CommentFactory.create_batch(5, task=task)
+
+    pages = [auth_client.get(list_url(task), {"page_size": 2}).data]
+    while pages[-1]["next"]:
+        pages.append(auth_client.get(pages[-1]["next"]).data)
+
+    assert set(pages[0]) == {"next", "previous", "results"}
+    assert [len(page["results"]) for page in pages] == [2, 2, 1]
+    assert [item["id"] for page in pages for item in page["results"]] == [c.pk for c in comments]
+
+
 def test_comments_of_missing_task_return_404(auth_client):
     url = reverse("task-comment-list", args=[999])
 
