@@ -1,8 +1,11 @@
+from unittest import mock
+
 import pytest
 from django.urls import reverse
 from rest_framework import status
 
 from apps.tasks.models import Task
+from config.pagination import NewestFirstCursorPagination
 from tests.factories import CommentFactory, TaskFactory, UserFactory
 
 pytestmark = pytest.mark.django_db
@@ -65,26 +68,67 @@ def test_create_task_rejects_inactive_assignee(auth_client):
     assert "assignee_id" in response.data
 
 
-def test_list_tasks_is_paginated_and_includes_comment_counts(auth_client):
+def test_list_tasks_includes_comment_counts(auth_client):
     task = TaskFactory()
     CommentFactory.create_batch(2, task=task)
-    TaskFactory()
+    quiet = TaskFactory()
 
     response = auth_client.get(LIST_URL)
 
     assert response.status_code == status.HTTP_200_OK
-    assert response.data["count"] == 2
     counts = {item["id"]: item["comments_count"] for item in response.data["results"]}
-    assert counts[task.pk] == 2
+    assert counts == {task.pk: 2, quiet.pk: 0}
 
 
-def test_page_size_can_be_changed(auth_client):
+def walk_pages(client, url: str, **params) -> list[list[int]]:
+    pages = []
+    response = client.get(url, params)
+    while True:
+        assert response.status_code == status.HTTP_200_OK
+        pages.append([item["id"] for item in response.data["results"]])
+        if response.data["next"] is None:
+            return pages
+        response = client.get(response.data["next"])
+
+
+def test_cursor_pages_list_every_task_once_newest_first(auth_client):
+    tasks = TaskFactory.create_batch(5)
+
+    pages = walk_pages(auth_client, LIST_URL, page_size=2)
+
+    assert pages == [[t.pk for t in reversed(tasks)][i : i + 2] for i in (0, 2, 4)]
+
+
+def test_cursor_pagination_survives_equal_timestamps(auth_client):
+    tasks = TaskFactory.create_batch(5)
+    Task.objects.update(created_at=tasks[0].created_at)
+
+    pages = walk_pages(auth_client, LIST_URL, page_size=2)
+
+    assert [pk for page in pages for pk in page] == sorted((t.pk for t in tasks), reverse=True)
+
+
+def test_list_response_has_no_total_count(auth_client):
+    TaskFactory()
+
+    response = auth_client.get(LIST_URL)
+
+    assert set(response.data) == {"next", "previous", "results"}
+
+
+def test_page_size_is_capped(auth_client):
     TaskFactory.create_batch(3)
 
-    response = auth_client.get(LIST_URL, {"page_size": 2})
+    with mock.patch.object(NewestFirstCursorPagination, "max_page_size", 2):
+        response = auth_client.get(LIST_URL, {"page_size": 50})
 
     assert len(response.data["results"]) == 2
-    assert response.data["next"] is not None
+
+
+def test_invalid_cursor_returns_404(auth_client):
+    response = auth_client.get(LIST_URL, {"cursor": "garbage"})
+
+    assert response.status_code == status.HTTP_404_NOT_FOUND
 
 
 def test_any_authenticated_user_can_read_a_task(auth_client):

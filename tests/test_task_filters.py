@@ -66,14 +66,24 @@ def test_search_in_title_and_description(auth_client):
     assert result_ids(response) == {by_title.pk, by_description.pk}
 
 
-def test_ordering_by_priority(auth_client):
+def test_filters_apply_to_every_cursor_page(auth_client):
+    done = TaskFactory.create_batch(3, status=Task.Status.DONE)
+    TaskFactory.create_batch(3, status=Task.Status.TODO)
+
+    first = auth_client.get(LIST_URL, {"status": "done", "page_size": 2})
+    second = auth_client.get(first.data["next"])
+
+    assert result_ids(first) | result_ids(second) == {task.pk for task in done}
+    assert second.data["next"] is None
+
+
+def test_client_ordering_is_not_supported(auth_client):
     low = TaskFactory(priority=Task.Priority.LOW)
     high = TaskFactory(priority=Task.Priority.HIGH)
-    medium = TaskFactory(priority=Task.Priority.MEDIUM)
 
-    response = auth_client.get(LIST_URL, {"ordering": "-priority"})
+    response = auth_client.get(LIST_URL, {"ordering": "priority"})
 
-    assert [item["id"] for item in response.data["results"]] == [high.pk, medium.pk, low.pk]
+    assert [item["id"] for item in response.data["results"]] == [high.pk, low.pk]
 
 
 def test_invalid_filter_value_returns_400(auth_client):

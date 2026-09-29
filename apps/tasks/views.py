@@ -2,13 +2,17 @@ from collections.abc import Callable
 from functools import cached_property
 
 from django.shortcuts import get_object_or_404
+from django_filters.rest_framework import DjangoFilterBackend
 from drf_spectacular.utils import extend_schema, extend_schema_view
 from rest_framework import status, viewsets
 from rest_framework.decorators import action
 from rest_framework.exceptions import ValidationError
+from rest_framework.filters import SearchFilter
 from rest_framework.permissions import IsAuthenticated
 from rest_framework.request import Request
 from rest_framework.response import Response
+
+from config.pagination import NewestFirstCursorPagination
 
 from .filters import TaskFilter
 from .models import Comment, StatusTransitionError, Task
@@ -29,10 +33,11 @@ class TaskViewSet(viewsets.ModelViewSet):
 
     serializer_class = TaskSerializer
     permission_classes = [IsAuthenticated, IsAuthorOrReadOnly]
+    # No client-chosen ordering: the list is paginated by cursor over a fixed order.
+    filter_backends = [DjangoFilterBackend, SearchFilter]
     filterset_class = TaskFilter
     search_fields = ["title", "description"]
-    ordering_fields = ["created_at", "updated_at", "due_date", "priority", "title"]
-    ordering = ["-created_at"]
+    pagination_class = NewestFirstCursorPagination
 
     def get_queryset(self):
         return Task.objects.select_related("author", "assignee")

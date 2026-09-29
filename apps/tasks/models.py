@@ -28,11 +28,15 @@ class Task(models.Model):
     priority = models.PositiveSmallIntegerField(choices=Priority.choices, default=Priority.MEDIUM)
     due_date = models.DateField(null=True, blank=True)
     author = models.ForeignKey(
-        settings.AUTH_USER_MODEL, on_delete=models.CASCADE, related_name="authored_tasks"
+        settings.AUTH_USER_MODEL,
+        on_delete=models.CASCADE,
+        related_name="authored_tasks",
+        db_index=False,
     )
     assignee = models.ForeignKey(
         settings.AUTH_USER_MODEL,
         on_delete=models.SET_NULL,
+        db_index=False,
         null=True,
         blank=True,
         related_name="assigned_tasks",
@@ -45,11 +49,16 @@ class Task(models.Model):
     updated_at = models.DateTimeField(auto_now=True)
 
     class Meta:
-        ordering = ["-created_at"]
+        ordering = ["-created_at", "-id"]
         indexes = [
-            # Typical list queries: "my open tasks", "tasks I created by status".
-            models.Index(fields=["assignee", "status"]),
-            models.Index(fields=["author", "status"]),
+            # The task list: newest first, paginated by cursor. The same order within
+            # one assignee or author serves "my tasks" pages without sorting; these
+            # also stand in for the plain foreign key indexes.
+            models.Index(fields=["-created_at", "-id"], name="task_newest_first_idx"),
+            models.Index(
+                fields=["assignee", "-created_at", "-id"], name="task_assignee_newest_idx"
+            ),
+            models.Index(fields=["author", "-created_at", "-id"], name="task_author_newest_idx"),
             models.Index(fields=["status", "due_date"]),
         ]
 
