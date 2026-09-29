@@ -1,7 +1,13 @@
 from django.urls import path
 from rest_framework.routers import SimpleRouter
 
-from .views import RegisterView, TokenObtainPairView, TokenRefreshView, UserViewSet
+from .views import (
+    RegisterView,
+    TokenBlacklistView,
+    TokenObtainPairView,
+    TokenRefreshView,
+    UserViewSet,
+)
 
 router = SimpleRouter()
 router.register("users", UserViewSet, basename="user")
@@ -10,5 +16,6 @@ urlpatterns = [
     path("auth/register/", RegisterView.as_view(), name="auth-register"),
     path("auth/token/", TokenObtainPairView.as_view(), name="token-obtain-pair"),
     path("auth/token/refresh/", TokenRefreshView.as_view(), name="token-refresh"),
+    path("auth/token/blacklist/", TokenBlacklistView.as_view(), name="token-blacklist"),
     *router.urls,
 ]

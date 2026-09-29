@@ -4,6 +4,7 @@ import pytest
 from django.contrib.auth import get_user_model
 from django.urls import reverse
 from rest_framework import status
+from rest_framework_simplejwt.tokens import AccessToken
 
 from tests.factories import DEFAULT_PASSWORD
 
@@ -92,16 +93,49 @@ def test_register_requires_ten_characters_in_a_password(api_client):
     assert long_enough.status_code == status.HTTP_201_CREATED
 
 
-def test_obtain_and_refresh_jwt(api_client, user):
-    response = api_client.post(
+def obtain_tokens(client, user) -> dict:
+    response = client.post(
         reverse("token-obtain-pair"), {"username": user.username, "password": DEFAULT_PASSWORD}
     )
     assert response.status_code == status.HTTP_200_OK
-    assert {"access", "refresh"} <= response.data.keys()
+    return response.data
 
-    refreshed = api_client.post(reverse("token-refresh"), {"refresh": response.data["refresh"]})
+
+def refresh(client, token: str):
+    return client.post(reverse("token-refresh"), {"refresh": token})
+
+
+def test_refresh_rotates_the_refresh_token(api_client, user):
+    tokens = obtain_tokens(api_client, user)
+
+    refreshed = refresh(api_client, tokens["refresh"])
+
     assert refreshed.status_code == status.HTTP_200_OK
-    assert "access" in refreshed.data
+    assert {"access", "refresh"} <= refreshed.data.keys()
+    assert refreshed.data["refresh"] != tokens["refresh"]
+    assert refresh(api_client, refreshed.data["refresh"]).status_code == status.HTTP_200_OK
+
+
+def test_a_refresh_token_works_only_once(api_client, user):
+    tokens = obtain_tokens(api_client, user)
+    refresh(api_client, tokens["refresh"])
+
+    assert refresh(api_client, tokens["refresh"]).status_code == status.HTTP_401_UNAUTHORIZED
+
+
+def test_logout_revokes_the_refresh_token(api_client, user):
+    tokens = obtain_tokens(api_client, user)
+
+    logout = api_client.post(reverse("token-blacklist"), {"refresh": tokens["refresh"]})
+
+    assert logout.status_code == status.HTTP_200_OK
+    assert refresh(api_client, tokens["refresh"]).status_code == status.HTTP_401_UNAUTHORIZED
+
+
+def test_access_token_lives_fifteen_minutes(api_client, user):
+    access = AccessToken(obtain_tokens(api_client, user)["access"])
+
+    assert access["exp"] - access["iat"] == 15 * 60
 
 
 def test_obtain_jwt_with_wrong_password_fails(api_client, user):
@@ -113,9 +147,7 @@ def test_obtain_jwt_with_wrong_password_fails(api_client, user):
 
 
 def test_access_token_authenticates_requests(api_client, user):
-    token = api_client.post(
-        reverse("token-obtain-pair"), {"username": user.username, "password": DEFAULT_PASSWORD}
-    ).data["access"]
+    token = obtain_tokens(api_client, user)["access"]
 
     api_client.credentials(HTTP_AUTHORIZATION=f"Bearer {token}")
     response = api_client.get(reverse("user-me"))

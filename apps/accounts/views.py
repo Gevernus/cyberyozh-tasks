@@ -39,6 +39,11 @@ class TokenRefreshView(jwt_views.TokenRefreshView):
     throttle_classes = AUTH_THROTTLES
 
 
+@extend_schema(summary="Log out: revoke a refresh token")
+class TokenBlacklistView(jwt_views.TokenBlacklistView):
+    throttle_classes = AUTH_THROTTLES
+
+
 @extend_schema(tags=["users"])
 class UserViewSet(viewsets.ReadOnlyModelViewSet):
     """Active users, e.g. to pick a task assignee."""
