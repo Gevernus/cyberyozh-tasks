@@ -1,10 +1,10 @@
 -c requirements.txt
 -r requirements.in
-pytest>=8.3
-pytest-django>=4.10
-pytest-cov>=6.0
-factory-boy>=3.3
+pytest>=8.3,<10
+pytest-django>=4.10,<5
+pytest-cov>=6.0,<8
+factory-boy>=3.3,<4
 ruff>=0.16,<0.17
-pip-tools>=7.4
-pip-audit>=2.7
-bandit[toml]>=1.8
+pip-tools>=7.4,<8
+pip-audit>=2.7,<3
+bandit[toml]>=1.8,<2
