@@ -246,6 +246,7 @@ def test_completing_completed_task_is_rejected(auth_client, user):
     response = auth_client.post(action_url(task, "complete"))
 
     assert response.status_code == status.HTTP_400_BAD_REQUEST
+    assert response.json() == {"status": ["Task is already completed."]}
 
 
 def test_assignee_can_reopen_task(client_for, user, other_user):
@@ -264,6 +265,7 @@ def test_reopening_open_task_is_rejected(auth_client, user):
     response = auth_client.post(action_url(task, "reopen"))
 
     assert response.status_code == status.HTTP_400_BAD_REQUEST
+    assert response.json() == {"status": ["Task is not completed."]}
 
 
 # --- Assignment ---------------------------------------------------------------

@@ -97,7 +97,7 @@ class TaskViewSet(viewsets.ModelViewSet):
         try:
             transition(task)
         except StatusTransitionError as exc:
-            raise ValidationError({"status": str(exc)}) from exc
+            raise ValidationError({"status": [str(exc)]}) from exc
         return Response(self.get_serializer(task).data)
 
 
