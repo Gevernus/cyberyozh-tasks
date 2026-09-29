@@ -189,7 +189,8 @@ REST_FRAMEWORK = {
         "anon": os.environ.get("THROTTLE_ANON_RATE", "100/hour"),
         "user": os.environ.get("THROTTLE_USER_RATE", "1000/hour"),
         "auth": os.environ.get("THROTTLE_AUTH_RATE", "10/min"),
-        "auth_account": os.environ.get("THROTTLE_AUTH_ACCOUNT_RATE", "20/hour"),
+        "auth_account_ip": os.environ.get("THROTTLE_AUTH_ACCOUNT_IP_RATE", "10/hour"),
+        "auth_account": os.environ.get("THROTTLE_AUTH_ACCOUNT_RATE", "100/hour"),
     },
     # 0 = identify clients by the socket address. Without it DRF trusts any
     # X-Forwarded-For value, so a client could dodge throttling by forging the header.

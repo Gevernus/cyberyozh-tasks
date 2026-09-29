@@ -8,6 +8,7 @@ from rest_framework.response import Response
 from rest_framework_simplejwt import views as jwt_views
 
 from config.throttling import (
+    AuthAccountAddressRateThrottle,
     AuthAccountRateThrottle,
     AuthRateThrottle,
     FailOpenAnonRateThrottle,
@@ -35,9 +36,16 @@ class RegisterView(generics.CreateAPIView):
 
 
 class TokenObtainPairView(jwt_views.TokenObtainPairView):
-    # Per IP and per target account: guessing one password from many addresses
-    # runs into the second limit.
-    throttle_classes = [*AUTH_THROTTLES, AuthAccountRateThrottle]
+    # Per IP, per target account from that IP, per target account from all IPs.
+    throttle_classes = [*AUTH_THROTTLES, AuthAccountAddressRateThrottle, AuthAccountRateThrottle]
+
+    def check_throttles(self, request) -> None:
+        # Stop at the first refusal. DRF counts a request in every limit that lets it
+        # through, so an attempt refused for its address would still use up the
+        # account's shared budget, and one address could lock the owner out.
+        for throttle in self.get_throttles():
+            if not throttle.allow_request(request, self):
+                self.throttled(request, throttle.wait())
 
 
 class TokenRefreshView(jwt_views.TokenRefreshView):

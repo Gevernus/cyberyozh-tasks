@@ -60,19 +60,56 @@ class AuthRateThrottle(LocalFallbackMixin, throttling.SimpleRateThrottle):
         return self.cache_format % {"scope": self.scope, "ident": self.get_ident(request)}
 
 
-class AuthAccountRateThrottle(LocalFallbackMixin, throttling.SimpleRateThrottle):
-    """Attempts per target username, whichever IPs they come from.
+def requested_account(request) -> str | None:
+    """The username a token request is for, normalised as Django does and case-folded."""
+    username = request.data.get("username") if hasattr(request.data, "get") else None
+    if not isinstance(username, str) or not username.strip():
+        return None
+    return AbstractBaseUser.normalize_username(username.strip()).casefold()
 
-    Stops password guessing spread over many addresses. The name is normalised as
-    Django does, then case-folded, so case variants share one budget.
+
+def digest(value: str) -> str:
+    return hashlib.sha256(value.encode()).hexdigest()
+
+
+class AuthAccountAddressRateThrottle(LocalFallbackMixin, throttling.SimpleRateThrottle):
+    """Token requests for one username from one client IP: the tight guessing limit.
+
+    Whoever uses it up blocks only their own address, not the account's owner.
+    """
+
+    scope = "auth_account_ip"
+
+    def get_cache_key(self, request, view) -> str | None:
+        account = requested_account(request)
+        if account is None:
+            return None
+        ident = digest(f"{account}\0{self.get_ident(request)}")
+        return self.cache_format % {"scope": self.scope, "ident": ident}
+
+
+class AuthAccountRateThrottle(LocalFallbackMixin, throttling.SimpleRateThrottle):
+    """Token requests for one username from all addresses together.
+
+    A backstop against guessing spread over many IPs. Using it up locks the owner
+    out too, so it is set well above the per-address limit: it takes many addresses
+    to reach, and reaching it is logged for alerting.
     """
 
     scope = "auth_account"
 
     def get_cache_key(self, request, view) -> str | None:
-        username = request.data.get("username") if hasattr(request.data, "get") else None
-        if not isinstance(username, str) or not username.strip():
+        self.account = requested_account(request)
+        if self.account is None:
             return None
-        normalised = AbstractBaseUser.normalize_username(username.strip()).casefold()
-        ident = hashlib.sha256(normalised.encode()).hexdigest()
-        return self.cache_format % {"scope": self.scope, "ident": ident}
+        return self.cache_format % {"scope": self.scope, "ident": digest(self.account)}
+
+    def throttle_failure(self) -> bool:
+        # Once per window per account: a line per refused attempt would flood the log.
+        if self.cache.add(f"{self.key}:reported", True, self.duration):
+            logger.warning(
+                "Account throttled: token requests over %s from all addresses",
+                self.rate,
+                extra={"account": self.account[:150]},
+            )
+        return False

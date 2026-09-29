@@ -86,7 +86,26 @@ def login(client, username: str, address: str = "127.0.0.1"):
     )
 
 
-# --- Per-account limit on the token endpoint ------------------------------------
+# --- Per-account limits on the token endpoint -----------------------------------
+
+
+def test_token_attempts_are_limited_per_account_and_address(api_client, throttle_rates):
+    throttle_rates(auth_account_ip="2/min")
+
+    codes = [login(api_client, "alice", "198.51.100.1").status_code for _ in range(3)]
+
+    assert codes == [401, 401, 429]
+    assert login(api_client, "alice", "198.51.100.2").status_code == 401
+    assert login(api_client, "bob", "198.51.100.1").status_code == 401
+
+
+def test_attempts_refused_for_one_address_do_not_lock_the_owner_out(api_client, throttle_rates):
+    throttle_rates(auth_account_ip="2/min", auth_account="3/min")
+
+    codes = [login(api_client, "alice", "203.0.113.66").status_code for _ in range(5)]
+
+    assert codes == [401, 401, 429, 429, 429]
+    assert login(api_client, "alice", "198.51.100.1").status_code == 401
 
 
 def test_token_attempts_are_limited_per_account_across_addresses(api_client, throttle_rates):
@@ -107,24 +126,33 @@ def test_username_case_and_spacing_do_not_reset_the_account_limit(api_client, th
     assert login(api_client, " Alice ", "198.51.100.3").status_code == 429
 
 
-@pytest.mark.parametrize("payload", [{}, {"username": ""}, {"username": ["a", "b"]}])
-def test_requests_without_a_username_skip_the_account_limit(api_client, throttle_rates, payload):
+def test_reaching_the_account_limit_is_logged_once_per_window(api_client, throttle_rates, caplog):
     throttle_rates(auth_account="1/min")
+
+    codes = [login(api_client, " Alice ", f"198.51.100.{n}").status_code for n in range(3)]
+
+    assert codes == [401, 429, 429]
+    [record] = [r for r in caplog.records if r.getMessage().startswith("Account throttled")]
+    assert record.levelno == logging.WARNING
+    assert record.account == "alice"
+
+
+@pytest.mark.parametrize("payload", [{}, {"username": ""}, {"username": ["a", "b"]}])
+def test_requests_without_a_username_skip_the_account_limits(api_client, throttle_rates, payload):
+    throttle_rates(auth_account_ip="1/min", auth_account="1/min")
     url = reverse("token-obtain-pair")
 
-    codes = [
-        api_client.post(url, payload, REMOTE_ADDR=f"198.51.100.{n}").status_code for n in range(2)
-    ]
+    codes = [api_client.post(url, payload).status_code for _ in range(2)]
 
     assert codes == [400, 400]
 
 
-def test_account_limit_applies_only_to_obtaining_tokens(api_client, throttle_rates):
-    throttle_rates(auth_account="1/min")
+def test_account_limits_apply_only_to_obtaining_tokens(api_client, throttle_rates):
+    throttle_rates(auth_account_ip="1/min", auth_account="1/min")
     login(api_client, "alice", "198.51.100.1")
 
     response = api_client.post(
-        reverse("token-refresh"), {"username": "alice", "refresh": "x"}, REMOTE_ADDR="198.51.100.2"
+        reverse("token-refresh"), {"username": "alice", "refresh": "x"}, REMOTE_ADDR="198.51.100.1"
     )
 
     assert response.status_code == status.HTTP_401_UNAUTHORIZED
@@ -160,12 +188,23 @@ def test_auth_limits_count_in_process_memory_when_the_cache_is_down(
 
 
 @pytest.mark.usefixtures("unreachable_cache")
-def test_account_limit_counts_in_process_memory_when_the_cache_is_down(
-    api_client, throttle_rates, caplog
+@pytest.mark.parametrize(
+    ("rates", "addresses", "throttle"),
+    [
+        ({"auth_account_ip": "2/min"}, ["198.51.100.1"] * 3, "AuthAccountAddressRateThrottle"),
+        (
+            {"auth_account": "2/min"},
+            ["198.51.100.1", "198.51.100.2", "198.51.100.3"],
+            "AuthAccountRateThrottle",
+        ),
+    ],
+)
+def test_account_limits_count_in_process_memory_when_the_cache_is_down(
+    api_client, throttle_rates, caplog, rates, addresses, throttle
 ):
-    throttle_rates(anon="100/min", auth="100/min", auth_account="2/min")
+    throttle_rates(anon="100/min", auth="100/min", **rates)
 
-    codes = [login(api_client, "alice", f"198.51.100.{n}").status_code for n in range(3)]
+    codes = [login(api_client, "alice", address).status_code for address in addresses]
 
     assert codes == [401, 401, 429]
-    assert "AuthAccountRateThrottle" in throttle_warnings(caplog)
+    assert throttle in throttle_warnings(caplog)
