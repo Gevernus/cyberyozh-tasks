@@ -50,3 +50,8 @@ def test_env_example_matches_the_edge_setup():
     assert env["DJANGO_SECURE_PROXY_SSL_HEADER"] == "1"
     assert env["NUM_PROXIES"] == "1"
     assert "DJANGO_MIGRATE" not in env
+
+
+def test_every_service_rotates_its_logs():
+    for name, service in SERVICES.items():
+        assert service["logging"]["options"]["max-size"], name

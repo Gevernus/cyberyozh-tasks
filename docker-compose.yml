@@ -1,8 +1,16 @@
 # Only caddy is reachable from outside; web, db and redis talk over the compose network.
 # Scale the API with `docker compose up -d --scale web=N`.
 
+# Docker keeps json-file logs forever by default; cap them per container.
+x-logging: &logging
+  driver: json-file
+  options:
+    max-size: 20m
+    max-file: "5"
+
 x-app: &app
   build: .
+  logging: *logging
   env_file: .env
   environment: &app-environment
     DATABASE_URL: postgres://${POSTGRES_USER:-tasks}:${POSTGRES_PASSWORD:?set POSTGRES_PASSWORD in .env}@db:5432/${POSTGRES_DB:-tasks}
@@ -15,6 +23,7 @@ services:
   db:
     image: postgres:17-alpine
     restart: unless-stopped
+    logging: *logging
     environment:
       POSTGRES_DB: ${POSTGRES_DB:-tasks}
       POSTGRES_USER: ${POSTGRES_USER:-tasks}
@@ -30,6 +39,7 @@ services:
   redis:
     image: redis:7-alpine
     restart: unless-stopped
+    logging: *logging
     # Holds only throttle counters: no persistence, bounded memory.
     command: redis-server --save "" --appendonly no --maxmemory 64mb --maxmemory-policy allkeys-lru
     healthcheck:
@@ -64,6 +74,7 @@ services:
   caddy:
     image: caddy:2-alpine
     restart: unless-stopped
+    logging: *logging
     environment:
       DOMAIN: ${DOMAIN}
       CADDY_TLS: ${CADDY_TLS:-acme}
