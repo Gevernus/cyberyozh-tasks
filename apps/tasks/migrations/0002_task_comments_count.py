@@ -13,7 +13,7 @@ from django.db import migrations, models
 from django.db.models import Count, Max, OuterRef, Subquery
 from django.db.models.functions import Coalesce
 
-from config.migration_operations import AddFieldIfMissing
+from core.migration_operations import AddFieldIfMissing
 
 BATCH_SIZE = 10_000
 

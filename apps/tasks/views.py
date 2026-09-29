@@ -12,7 +12,7 @@ from rest_framework.permissions import IsAuthenticated
 from rest_framework.request import Request
 from rest_framework.response import Response
 
-from config.pagination import NewestFirstCursorPagination, OldestFirstCursorPagination
+from core.pagination import NewestFirstCursorPagination, OldestFirstCursorPagination
 
 from .filters import TaskFilter
 from .models import Comment, StatusTransitionError, Task

@@ -5,7 +5,7 @@ from django.urls import reverse
 from rest_framework import status
 
 from apps.tasks.models import Task
-from config.pagination import NewestFirstCursorPagination
+from core.pagination import NewestFirstCursorPagination
 from tests.factories import CommentFactory, TaskFactory, UserFactory
 
 pytestmark = pytest.mark.django_db

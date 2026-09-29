@@ -6,7 +6,7 @@ import shutil
 from gunicorn.glogging import Logger
 from prometheus_client import multiprocess
 
-from config.observability import JSON_FORMATTER, REQUEST_ID_HEADER
+from core.observability import JSON_FORMATTER, REQUEST_ID_HEADER
 
 
 def env_int(name: str, default: int) -> int:

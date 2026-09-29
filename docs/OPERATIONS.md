@@ -96,7 +96,7 @@ docker compose run --rm migrate python manage.py reconcile_comments_count
 Миграции пишутся совместимыми со старым кодом (новые колонки — с `db_default`), поэтому
 старые реплики продолжают работать, пока `migrate` меняет схему. Запись в таблицы при этом
 не блокируется: индексы на существующих таблицах строятся и удаляются `CONCURRENTLY`
-(`config/migration_operations.py`, миграции с `atomic = False`; тест не пропустит обычный
+(`core/migration_operations.py`, миграции с `atomic = False`; тест не пропустит обычный
 `AddIndex`), заполнение новых колонок идёт короткими пачками вне транзакции `ADD COLUMN`.
 `migrate` работает без `statement_timeout`, поэтому долгая сборка индекса не прерывается.
 На 1 млн задач и 0,86 млн комментариев миграции `tasks` с нуля идут ~35 с (PostgreSQL 14,
@@ -256,7 +256,7 @@ HTTP внутри сети). Подробности ошибок только в
 
 Счётчики лежат в Redis, общем для всех процессов и реплик. Если Redis недоступен, общие
 лимиты пропускают запросы — доступность API важнее, — а лимиты входа продолжают считать
-в памяти каждого процесса gunicorn (`LOCAL_CACHE` в `config/throttling.py`). Каждое такое
+в памяти каждого процесса gunicorn (`LOCAL_CACHE` в `core/throttling.py`). Каждое такое
 событие пишет `WARNING` в лог, readiness отвечает `degraded`.
 
 **Подбор пароля и блокировка чужого аккаунта.** Лимит только по имени пользователя
@@ -358,7 +358,7 @@ k6 run -e BASE_URL=https://$DOMAIN -e PASSWORD="$LOAD_PASSWORD" \
 
 | Симптом | Что смотреть | Что делать |
 |---|---|---|
-| readiness `degraded`, в логах `WARNING config.throttling` | `docker compose ps redis`, `logs redis` | `docker compose restart redis`; пока Redis нет — лимиты см. выше |
+| readiness `degraded`, в логах `WARNING core.throttling` | `docker compose ps redis`, `logs redis` | `docker compose restart redis`; пока Redis нет — лимиты см. выше |
 | readiness `503`, API отвечает 500 | `docker compose ps db`, `logs db`, диск | поднять БД; контейнеры web перезапускать не нужно |
 | 502/503 от Caddy, `no upstreams available` | `docker compose ps web`, `logs web` | реплики не healthy или все выведены после ошибок; `docker compose up -d --wait` |
 | рост 5xx | `logs web` по `request_id` из ответа, Sentry | |

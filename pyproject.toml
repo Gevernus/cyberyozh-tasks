@@ -15,7 +15,7 @@ select = ["E", "W", "F", "I", "B", "UP", "DJ", "SIM", "N", "C4", "RUF"]
 ignore = ["RUF012"]
 
 [tool.ruff.lint.isort]
-known-first-party = ["apps", "config", "tests"]
+known-first-party = ["apps", "config", "core", "tests"]
 
 [tool.bandit]
 # Tests use asserts and fixed passwords by design.
@@ -32,7 +32,7 @@ filterwarnings = [
 ]
 
 [tool.coverage.run]
-source = ["apps", "config"]
+source = ["apps", "config", "core"]
 omit = ["*/migrations/*", "config/asgi.py", "config/wsgi.py"]
 
 [tool.coverage.report]

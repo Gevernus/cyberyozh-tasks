@@ -8,7 +8,7 @@ import django.db.models.deletion
 from django.conf import settings
 from django.db import migrations, models
 
-from config.migration_operations import AddIndexConcurrently, RemoveIndexConcurrently
+from core.migration_operations import AddIndexConcurrently, RemoveIndexConcurrently
 
 # Django's names for the plain foreign key indexes the composite ones replace.
 FOREIGN_KEY_INDEXES = {

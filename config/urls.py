@@ -7,8 +7,8 @@ from drf_spectacular.views import (
     SpectacularSwaggerSplitView,
 )
 
-from config.health import LivenessView, ReadinessView
-from config.metrics import metrics_view
+from core.health import LivenessView, ReadinessView
+from core.metrics import metrics_view
 
 urlpatterns = [
     path("api/health/", ReadinessView.as_view(), name="health"),

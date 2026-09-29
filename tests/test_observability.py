@@ -12,8 +12,8 @@ from django.conf import settings
 from django.urls import reverse
 from gunicorn.config import Config
 
-from config import health
-from config.observability import RequestIdFilter, request_id_var
+from core import health
+from core.observability import RequestIdFilter, request_id_var
 
 LIVE_URL = reverse("health-live")
 READY_URL = reverse("health")

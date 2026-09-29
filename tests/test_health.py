@@ -4,7 +4,7 @@ import pytest
 from django.urls import reverse
 from rest_framework import status
 
-from config import health
+from core import health
 
 READY_URL = reverse("health")
 LIVE_URL = reverse("health-live")

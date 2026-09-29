@@ -84,4 +84,4 @@ def test_indexes_on_existing_tables_are_built_without_blocking_writes():
         if type(operation) in {AddIndex, RemoveIndex}
     ]
 
-    assert blocking == [], "use config.migration_operations in a non-atomic migration"
+    assert blocking == [], "use core.migration_operations in a non-atomic migration"

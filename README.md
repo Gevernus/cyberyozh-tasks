@@ -193,7 +193,8 @@ CI (`.github/workflows/ci.yml`): линтер; проверки Django, мигр
 и сквозной smoke-тест через Caddy (`deploy/smoke.sh`).
 
 ```
-config/          настройки из окружения, URL, пагинация, троттлинг, health, метрики, request id
+config/          настройки из окружения, URL, WSGI/ASGI
+core/            пагинация, троттлинг, health, метрики, request id, операции миграций
 apps/accounts/   пользователь, регистрация, JWT
 apps/tasks/      задачи, комментарии, права, фильтры, seed_demo, seed_bulk
 deploy/          Caddyfile, smoke.sh

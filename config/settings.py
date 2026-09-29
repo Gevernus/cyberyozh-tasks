@@ -14,7 +14,7 @@ import dj_database_url
 import sentry_sdk
 from django.core.exceptions import ImproperlyConfigured
 
-from config.observability import JSON_FORMATTER
+from core.observability import JSON_FORMATTER
 
 BASE_DIR = Path(__file__).resolve().parent.parent
 
@@ -74,7 +74,7 @@ INSTALLED_APPS = [
 
 MIDDLEWARE = [
     "django_prometheus.middleware.PrometheusBeforeMiddleware",
-    "config.observability.RequestIdMiddleware",
+    "core.observability.RequestIdMiddleware",
     "django.middleware.security.SecurityMiddleware",
     "whitenoise.middleware.WhiteNoiseMiddleware",
     "django.contrib.sessions.middleware.SessionMiddleware",
@@ -177,13 +177,13 @@ REST_FRAMEWORK = {
         "rest_framework.filters.SearchFilter",
         "rest_framework.filters.OrderingFilter",
     ],
-    "DEFAULT_PAGINATION_CLASS": "config.pagination.DefaultPagination",
+    "DEFAULT_PAGINATION_CLASS": "core.pagination.DefaultPagination",
     "PAGE_SIZE": 20,
     # Fail open: while the cache is unreachable requests pass without rate limits.
     # Auth endpoints add their own limits, see apps/accounts/views.py.
     "DEFAULT_THROTTLE_CLASSES": [
-        "config.throttling.FailOpenAnonRateThrottle",
-        "config.throttling.FailOpenUserRateThrottle",
+        "core.throttling.FailOpenAnonRateThrottle",
+        "core.throttling.FailOpenUserRateThrottle",
     ],
     "DEFAULT_THROTTLE_RATES": {
         "anon": os.environ.get("THROTTLE_ANON_RATE", "100/hour"),
@@ -261,7 +261,7 @@ LOG_LEVEL = os.environ.get("DJANGO_LOG_LEVEL", "INFO").upper()
 LOGGING = {
     "version": 1,
     "disable_existing_loggers": False,
-    "filters": {"request_id": {"()": "config.observability.RequestIdFilter"}},
+    "filters": {"request_id": {"()": "core.observability.RequestIdFilter"}},
     "formatters": {"json": JSON_FORMATTER},
     "handlers": {
         "console": {

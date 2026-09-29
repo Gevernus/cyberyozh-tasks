@@ -7,7 +7,7 @@ from rest_framework.request import Request
 from rest_framework.response import Response
 from rest_framework_simplejwt import views as jwt_views
 
-from config.throttling import (
+from core.throttling import (
     AuthAccountAddressRateThrottle,
     AuthAccountRateThrottle,
     AuthRateThrottle,

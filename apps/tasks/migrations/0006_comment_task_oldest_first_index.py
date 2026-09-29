@@ -11,7 +11,7 @@ Non-atomic: indexes are built and dropped CONCURRENTLY. Every step can be repeat
 import django.db.models.deletion
 from django.db import migrations, models
 
-from config.migration_operations import (
+from core.migration_operations import (
     AddIndexConcurrently,
     RemoveIndexConcurrently,
     is_postgresql,

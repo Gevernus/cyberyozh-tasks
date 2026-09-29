@@ -4,7 +4,7 @@ import pytest
 from django.urls import reverse
 from rest_framework import status
 
-from config.throttling import digest
+from core.throttling import digest
 
 pytestmark = pytest.mark.django_db
 
@@ -76,7 +76,7 @@ def throttle_warnings(caplog) -> set[str]:
     return {
         record.getMessage().split(" ")[0]
         for record in caplog.records
-        if record.name == "config.throttling" and record.levelno == logging.WARNING
+        if record.name == "core.throttling" and record.levelno == logging.WARNING
     }
 
 

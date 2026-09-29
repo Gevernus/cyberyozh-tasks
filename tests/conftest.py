@@ -3,7 +3,7 @@ from django.core.cache import cache
 from rest_framework.test import APIClient
 from rest_framework.throttling import SimpleRateThrottle
 
-from config.throttling import LOCAL_CACHE
+from core.throttling import LOCAL_CACHE
 from tests.factories import UserFactory
 
 
