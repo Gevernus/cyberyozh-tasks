@@ -83,8 +83,13 @@ docker compose up -d --wait              # migrate отработает до п�
 ```
 
 Миграции пишутся совместимыми со старым кодом (новые колонки — с `db_default`), поэтому
-старые реплики продолжают работать, пока `migrate` меняет схему. Индексы на больших живых
-таблицах создавать через `AddIndexConcurrently` в отдельной миграции.
+старые реплики продолжают работать, пока `migrate` меняет схему. Запись в таблицы при этом
+не блокируется: индексы на существующих таблицах строятся и удаляются `CONCURRENTLY`
+(`config/migration_operations.py`, миграции с `atomic = False`; тест не пропустит обычный
+`AddIndex`), заполнение новых колонок идёт короткими пачками вне транзакции `ADD COLUMN`.
+`migrate` работает без `statement_timeout`, поэтому долгая сборка индекса не прерывается.
+На 1 млн задач миграции `tasks` идут ~20 с, вставка в `tasks_task` в это время — до 0,15 с
+(прежде ждала блокировку до таймаута 5 с).
 
 ### Остановка
 
@@ -296,6 +301,6 @@ k6 run -e BASE_URL=https://$DOMAIN -e PASSWORD="$LOAD_PASSWORD" \
 | рост 5xx | `logs web` по `request_id` из ответа, Sentry | |
 | `canceling statement due to statement timeout` | запрос в логе, `EXPLAIN ANALYZE` | индекс или ограничение запроса; разово — поднять `DJANGO_DB_STATEMENT_TIMEOUT_MS` |
 | сертификат не выпускается | `logs caddy` (`acme`, `rateLimited`) | DNS → хост, порты 80/443, не удалять `caddy_data`; временно `CADDY_TLS=internal` |
-| `migrate` завершился с ошибкой, web не стартует | `docker compose logs migrate` | исправить миграцию/БД, `docker compose up -d --wait` |
+| `migrate` завершился с ошибкой, web не стартует | `docker compose logs migrate` | исправить причину, `docker compose up -d --wait`; прерванная сборка индекса оставляет `INVALID`-индекс, повторный запуск его пересоздаёт |
 | таблица outstanding-токенов растёт | `SELECT count(*) FROM token_blacklist_outstandingtoken` | `manage.py flushexpiredtokens` по расписанию |
 | смена `DJANGO_SECRET_KEY` | | все JWT и сессии станут недействительны: `up -d` в окно обслуживания |

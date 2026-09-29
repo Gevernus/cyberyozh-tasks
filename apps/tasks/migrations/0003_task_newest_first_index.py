@@ -1,9 +1,41 @@
+"""Indexes for the newest-first task list, built without blocking writes.
+
+Non-atomic: CREATE/DROP INDEX CONCURRENTLY cannot run in a transaction. Every step
+can be repeated, so a migration that failed midway can simply be run again.
+"""
+
 import django.db.models.deletion
 from django.conf import settings
 from django.db import migrations, models
 
+from config.migration_operations import AddIndexConcurrently, RemoveIndexConcurrently
+
+# Django's names for the plain foreign key indexes the composite ones replace.
+FOREIGN_KEY_INDEXES = {
+    "tasks_task_assignee_id_2c3ca866": "assignee_id",
+    "tasks_task_author_id_33a50930": "author_id",
+}
+
+
+def concurrently(schema_editor) -> str:
+    return " CONCURRENTLY" if schema_editor.connection.vendor == "postgresql" else ""
+
+
+def drop_foreign_key_indexes(apps, schema_editor):
+    for name in FOREIGN_KEY_INDEXES:
+        schema_editor.execute(f'DROP INDEX{concurrently(schema_editor)} IF EXISTS "{name}"')
+
+
+def create_foreign_key_indexes(apps, schema_editor):
+    for name, column in FOREIGN_KEY_INDEXES.items():
+        schema_editor.execute(
+            f'CREATE INDEX{concurrently(schema_editor)} "{name}" ON "tasks_task" ("{column}")'
+        )
+
 
 class Migration(migrations.Migration):
+    atomic = False
+
     dependencies = [
         ("tasks", "0002_task_comments_count"),
         migrations.swappable_dependency(settings.AUTH_USER_MODEL),
@@ -14,44 +46,53 @@ class Migration(migrations.Migration):
             name="task",
             options={"ordering": ["-created_at", "-id"]},
         ),
-        migrations.AddIndex(
+        AddIndexConcurrently(
             model_name="task",
             index=models.Index(fields=["-created_at", "-id"], name="task_newest_first_idx"),
         ),
-        migrations.AddIndex(
+        AddIndexConcurrently(
             model_name="task",
             index=models.Index(
                 fields=["assignee", "-created_at", "-id"], name="task_assignee_newest_idx"
             ),
         ),
-        migrations.AddIndex(
+        AddIndexConcurrently(
             model_name="task",
             index=models.Index(
                 fields=["author", "-created_at", "-id"], name="task_author_newest_idx"
             ),
         ),
-        migrations.RemoveIndex(model_name="task", name="tasks_task_assigne_7928f6_idx"),
-        migrations.RemoveIndex(model_name="task", name="tasks_task_author__4d54e1_idx"),
-        migrations.AlterField(
-            model_name="task",
-            name="assignee",
-            field=models.ForeignKey(
-                blank=True,
-                db_index=False,
-                null=True,
-                on_delete=django.db.models.deletion.SET_NULL,
-                related_name="assigned_tasks",
-                to=settings.AUTH_USER_MODEL,
-            ),
-        ),
-        migrations.AlterField(
-            model_name="task",
-            name="author",
-            field=models.ForeignKey(
-                db_index=False,
-                on_delete=django.db.models.deletion.CASCADE,
-                related_name="authored_tasks",
-                to=settings.AUTH_USER_MODEL,
-            ),
+        RemoveIndexConcurrently(model_name="task", name="tasks_task_assigne_7928f6_idx"),
+        RemoveIndexConcurrently(model_name="task", name="tasks_task_author__4d54e1_idx"),
+        # A plain AlterField would also drop and re-add the foreign key constraints,
+        # which re-validates every row while holding a lock that blocks writes.
+        migrations.SeparateDatabaseAndState(
+            database_operations=[
+                migrations.RunPython(drop_foreign_key_indexes, create_foreign_key_indexes),
+            ],
+            state_operations=[
+                migrations.AlterField(
+                    model_name="task",
+                    name="assignee",
+                    field=models.ForeignKey(
+                        blank=True,
+                        db_index=False,
+                        null=True,
+                        on_delete=django.db.models.deletion.SET_NULL,
+                        related_name="assigned_tasks",
+                        to=settings.AUTH_USER_MODEL,
+                    ),
+                ),
+                migrations.AlterField(
+                    model_name="task",
+                    name="author",
+                    field=models.ForeignKey(
+                        db_index=False,
+                        on_delete=django.db.models.deletion.CASCADE,
+                        related_name="authored_tasks",
+                        to=settings.AUTH_USER_MODEL,
+                    ),
+                ),
+            ],
         ),
     ]

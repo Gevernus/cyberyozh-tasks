@@ -3,6 +3,8 @@ import runpy
 import pytest
 from django.conf import settings
 from django.db import connection
+from django.db.migrations.loader import MigrationLoader
+from django.db.migrations.operations import AddIndex, RemoveIndex
 
 SETTINGS_FILE = str(settings.BASE_DIR / "config" / "settings.py")
 POSTGRES_URL = "postgres://app:secret@db:5432/tasks"
@@ -57,3 +59,16 @@ def test_task_search_is_backed_by_trigram_indexes():
 
     assert set(indexes) == {"task_title_trgm_idx", "task_description_trgm_idx"}
     assert all("gin_trgm_ops" in definition for definition in indexes.values())
+
+
+def test_indexes_on_existing_tables_are_built_without_blocking_writes():
+    loader = MigrationLoader(None, ignore_no_migrations=True)
+    blocking = [
+        f"{app_label}.{name}: {operation.describe()}"
+        for (app_label, name), migration in loader.disk_migrations.items()
+        if app_label in {"accounts", "tasks"} and not migration.initial
+        for operation in migration.operations
+        if type(operation) in {AddIndex, RemoveIndex}
+    ]
+
+    assert blocking == [], "use config.migration_operations in a non-atomic migration"
