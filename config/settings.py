@@ -11,7 +11,10 @@ from datetime import timedelta
 from pathlib import Path
 
 import dj_database_url
+import sentry_sdk
 from django.core.exceptions import ImproperlyConfigured
+
+from config.observability import JSON_FORMATTER
 
 BASE_DIR = Path(__file__).resolve().parent.parent
 
@@ -25,6 +28,10 @@ def env_bool(name: str, default: bool) -> bool:
 
 def env_int(name: str, default: int) -> int:
     return int(os.environ.get(name) or default)
+
+
+def env_float(name: str, default: float) -> float:
+    return float(os.environ.get(name) or default)
 
 
 def env_list(name: str, default: str = "") -> list[str]:
@@ -57,12 +64,15 @@ INSTALLED_APPS = [
     "rest_framework",
     "django_filters",
     "drf_spectacular",
+    "django_prometheus",
     # Local
     "apps.accounts",
     "apps.tasks",
 ]
 
 MIDDLEWARE = [
+    "django_prometheus.middleware.PrometheusBeforeMiddleware",
+    "config.observability.RequestIdMiddleware",
     "django.middleware.security.SecurityMiddleware",
     "whitenoise.middleware.WhiteNoiseMiddleware",
     "django.contrib.sessions.middleware.SessionMiddleware",
@@ -71,6 +81,7 @@ MIDDLEWARE = [
     "django.contrib.auth.middleware.AuthenticationMiddleware",
     "django.contrib.messages.middleware.MessageMiddleware",
     "django.middleware.clickjacking.XFrameOptionsMiddleware",
+    "django_prometheus.middleware.PrometheusAfterMiddleware",
 ]
 
 ROOT_URLCONF = "config.urls"
@@ -210,8 +221,8 @@ if env_bool("DJANGO_SECURE_PROXY_SSL_HEADER", default=False):
 # in front of the app.
 if env_bool("DJANGO_SECURE_HTTPS", default=False):
     SECURE_SSL_REDIRECT = True
-    # Health checks from the container and the host talk plain HTTP to localhost.
-    SECURE_REDIRECT_EXEMPT = [r"^api/health/(live/)?$"]
+    # Health checks and metric scrapes talk plain HTTP inside the private network.
+    SECURE_REDIRECT_EXEMPT = [r"^api/health/(live/)?$", r"^metrics$"]
     SESSION_COOKIE_SECURE = True
     CSRF_COOKIE_SECURE = True
     SECURE_HSTS_SECONDS = env_int("DJANGO_SECURE_HSTS_SECONDS", 31_536_000)
@@ -219,21 +230,22 @@ if env_bool("DJANGO_SECURE_HTTPS", default=False):
     SECURE_HSTS_PRELOAD = env_bool("DJANGO_SECURE_HSTS_PRELOAD", False)
 
 # --- Logging ---------------------------------------------------------------
-# Everything goes to stdout for the container runtime to collect. Django's default
-# handlers are dropped: with DEBUG off they only mail ADMINS, so 500s were invisible.
+# JSON lines on stdout for the container runtime to collect, each tagged with the
+# request id. Django's default handlers are dropped: with DEBUG off they only mail
+# ADMINS, so 500s were invisible.
 LOG_LEVEL = os.environ.get("DJANGO_LOG_LEVEL", "INFO").upper()
 
 LOGGING = {
     "version": 1,
     "disable_existing_loggers": False,
-    "formatters": {
-        "plain": {"format": "%(asctime)s %(levelname)s %(name)s %(process)d %(message)s"},
-    },
+    "filters": {"request_id": {"()": "config.observability.RequestIdFilter"}},
+    "formatters": {"json": JSON_FORMATTER},
     "handlers": {
         "console": {
             "class": "logging.StreamHandler",
             "stream": "ext://sys.stdout",
-            "formatter": "plain",
+            "formatter": "json",
+            "filters": ["request_id"],
         },
     },
     "root": {"handlers": ["console"], "level": LOG_LEVEL},
@@ -244,3 +256,13 @@ LOGGING = {
         "django.security": {"level": "WARNING"},
     },
 }
+
+# --- Error tracking ----------------------------------------------------------
+# Off unless SENTRY_DSN is set. Request bodies, cookies and user details stay out.
+if SENTRY_DSN := os.environ.get("SENTRY_DSN", ""):
+    sentry_sdk.init(
+        dsn=SENTRY_DSN,
+        environment=os.environ.get("SENTRY_ENVIRONMENT", "production"),
+        traces_sample_rate=env_float("SENTRY_TRACES_SAMPLE_RATE", 0.0),
+        send_default_pii=False,
+    )

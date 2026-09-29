@@ -8,6 +8,7 @@ from drf_spectacular.views import (
 )
 
 from config.health import LivenessView, ReadinessView
+from config.metrics import metrics_view
 
 urlpatterns = [
     path("api/health/", ReadinessView.as_view(), name="health"),
@@ -17,6 +18,7 @@ urlpatterns = [
     path("api/schema/", SpectacularAPIView.as_view(), name="schema"),
     path("api/docs/", SpectacularSwaggerView.as_view(url_name="schema"), name="swagger-ui"),
     path("api/redoc/", SpectacularRedocView.as_view(url_name="schema"), name="redoc"),
+    path("metrics", metrics_view, name="metrics"),
 ]
 
 if settings.ADMIN_ENABLED:
