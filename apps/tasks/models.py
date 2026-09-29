@@ -1,5 +1,8 @@
 from django.conf import settings
 from django.db import models, transaction
+from django.db.models import F, QuerySet
+from django.db.models.signals import post_delete
+from django.dispatch import receiver
 from django.utils import timezone
 
 
@@ -35,6 +38,9 @@ class Task(models.Model):
         related_name="assigned_tasks",
     )
     completed_at = models.DateTimeField(null=True, blank=True, editable=False)
+    # Maintained by Comment, see there. Stored so that lists need no COUNT per task.
+    # The database default lets code deployed before the column existed keep inserting.
+    comments_count = models.PositiveIntegerField(default=0, db_default=0, editable=False)
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
 
@@ -58,8 +64,17 @@ class Task(models.Model):
         elif not self.is_completed:
             self.completed_at = None
         update_fields = kwargs.get("update_fields")
+        if update_fields is None and not self._state.adding:
+            # A full save must not write back a comment counter read earlier: comments
+            # added meanwhile would be lost.
+            update_fields = [
+                field.name
+                for field in self._meta.concrete_fields
+                if not field.primary_key and field.name != "comments_count"
+            ]
         if update_fields is not None and "status" in update_fields:
-            kwargs["update_fields"] = {*update_fields, "completed_at"}
+            update_fields = {*update_fields, "completed_at"}
+        kwargs["update_fields"] = update_fields
         super().save(*args, **kwargs)
 
     @property
@@ -89,6 +104,14 @@ class Task(models.Model):
 
 
 class Comment(models.Model):
+    """A comment on a task.
+
+    Task.comments_count follows comments with atomic F() updates in the same
+    transaction: +1 in save() on creation, -1 in the post_delete handler below, which
+    also covers cascades (e.g. deleting a user). bulk_create bypasses both; callers
+    must set the counters themselves.
+    """
+
     task = models.ForeignKey(Task, on_delete=models.CASCADE, related_name="comments")
     author = models.ForeignKey(
         settings.AUTH_USER_MODEL, on_delete=models.CASCADE, related_name="task_comments"
@@ -103,3 +126,21 @@ class Comment(models.Model):
 
     def __str__(self) -> str:
         return f"Comment #{self.pk} on task #{self.task_id}"
+
+    def save(self, *args, **kwargs):
+        if not self._state.adding:
+            super().save(*args, **kwargs)
+            return
+        with transaction.atomic():
+            super().save(*args, **kwargs)
+            Task.objects.filter(pk=self.task_id).update(comments_count=F("comments_count") + 1)
+
+
+@receiver(post_delete, sender=Comment)
+def _decrement_comments_count(sender, instance: Comment, origin=None, **kwargs) -> None:
+    # Runs inside the deletion's transaction. Nothing to count when the task goes too.
+    deleting_tasks = isinstance(origin, Task) or (
+        isinstance(origin, QuerySet) and origin.model is Task
+    )
+    if not deleting_tasks:
+        Task.objects.filter(pk=instance.task_id).update(comments_count=F("comments_count") - 1)

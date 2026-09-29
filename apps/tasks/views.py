@@ -1,7 +1,6 @@
 from collections.abc import Callable
 from functools import cached_property
 
-from django.db.models import Count
 from django.shortcuts import get_object_or_404
 from drf_spectacular.utils import extend_schema, extend_schema_view
 from rest_framework import status, viewsets
@@ -36,14 +35,10 @@ class TaskViewSet(viewsets.ModelViewSet):
     ordering = ["-created_at"]
 
     def get_queryset(self):
-        return Task.objects.select_related("author", "assignee").annotate(
-            comments_count=Count("comments")
-        )
+        return Task.objects.select_related("author", "assignee")
 
     def perform_create(self, serializer):
-        task = serializer.save(author=self.request.user)
-        # Not annotated like queryset rows; set it so every response has the same shape.
-        task.comments_count = 0
+        serializer.save(author=self.request.user)
 
     @extend_schema(
         summary="Mark a task as completed",

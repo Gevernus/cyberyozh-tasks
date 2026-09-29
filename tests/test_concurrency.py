@@ -68,3 +68,30 @@ def test_concurrent_status_changes_apply_once(user, action, initial_status, fina
     task.refresh_from_db()
     assert task.status == final_status
     assert (task.completed_at is not None) == task.is_completed
+
+
+def test_concurrent_comments_are_all_counted(user):
+    task = TaskFactory()
+    url = reverse("task-comment-list", args=[task.pk])
+    writers = 8
+    start = threading.Barrier(writers, timeout=RACE_WINDOW)
+    codes = []
+
+    def comment() -> None:
+        try:
+            client = APIClient()
+            client.force_authenticate(user=user)
+            start.wait()
+            codes.append(client.post(url, {"text": "me too"}).status_code)
+        finally:
+            connection.close()
+
+    threads = [threading.Thread(target=comment) for _ in range(writers)]
+    for thread in threads:
+        thread.start()
+    for thread in threads:
+        thread.join()
+
+    assert codes == [status.HTTP_201_CREATED] * writers
+    task.refresh_from_db()
+    assert task.comments_count == writers

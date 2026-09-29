@@ -15,7 +15,7 @@ class TaskAdmin(admin.ModelAdmin):
     list_filter = ["status", "priority"]
     search_fields = ["title", "description"]
     raw_id_fields = ["author", "assignee"]
-    readonly_fields = ["completed_at", "created_at", "updated_at"]
+    readonly_fields = ["comments_count", "completed_at", "created_at", "updated_at"]
     list_select_related = ["author", "assignee"]
     inlines = [CommentInline]
 

@@ -101,3 +101,15 @@ def test_comment_cannot_be_moved_to_another_task(auth_client, user):
 
 def test_anonymous_user_cannot_read_comments(api_client):
     assert api_client.get(list_url(TaskFactory())).status_code == 401
+
+
+def test_task_shows_the_number_of_comments(auth_client, user):
+    task = TaskFactory()
+    task_url = reverse("task-detail", args=[task.pk])
+
+    created = auth_client.post(list_url(task), {"text": "one"})
+    auth_client.post(list_url(task), {"text": "two"})
+    assert auth_client.get(task_url).data["comments_count"] == 2
+
+    auth_client.delete(reverse("task-comment-detail", args=[task.pk, created.data["id"]]))
+    assert auth_client.get(task_url).data["comments_count"] == 1

@@ -21,7 +21,6 @@ class TaskSerializer(serializers.ModelSerializer):
     author = UserSerializer(read_only=True)
     assignee = UserSerializer(read_only=True)
     assignee_id = AssigneeField(source="assignee", write_only=True, required=False)
-    comments_count = serializers.IntegerField(read_only=True)
 
     class Meta:
         model = Task
