@@ -175,16 +175,16 @@ REST_FRAMEWORK = {
     "DEFAULT_PAGINATION_CLASS": "config.pagination.DefaultPagination",
     "PAGE_SIZE": 20,
     # Fail open: while the cache is unreachable requests pass without rate limits.
+    # Auth endpoints add their own limits, see apps/accounts/views.py.
     "DEFAULT_THROTTLE_CLASSES": [
-        "config.throttling.AnonRateThrottle",
-        "config.throttling.UserRateThrottle",
-        # Applies only to views that declare a throttle_scope.
-        "config.throttling.ScopedRateThrottle",
+        "config.throttling.FailOpenAnonRateThrottle",
+        "config.throttling.FailOpenUserRateThrottle",
     ],
     "DEFAULT_THROTTLE_RATES": {
         "anon": os.environ.get("THROTTLE_ANON_RATE", "100/hour"),
         "user": os.environ.get("THROTTLE_USER_RATE", "1000/hour"),
         "auth": os.environ.get("THROTTLE_AUTH_RATE", "10/min"),
+        "auth_account": os.environ.get("THROTTLE_AUTH_ACCOUNT_RATE", "20/hour"),
     },
     # 0 = identify clients by the socket address. Without it DRF trusts any
     # X-Forwarded-For value, so a client could dodge throttling by forging the header.

@@ -3,6 +3,7 @@ from django.core.cache import cache
 from rest_framework.test import APIClient
 from rest_framework.throttling import SimpleRateThrottle
 
+from config.throttling import LOCAL_CACHE
 from tests.factories import UserFactory
 
 
@@ -14,6 +15,7 @@ def _fast_password_hashing(settings):
 @pytest.fixture(autouse=True)
 def _fresh_throttle_counters():
     cache.clear()
+    LOCAL_CACHE.clear()
 
 
 @pytest.fixture

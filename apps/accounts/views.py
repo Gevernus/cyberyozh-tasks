@@ -7,9 +7,18 @@ from rest_framework.request import Request
 from rest_framework.response import Response
 from rest_framework_simplejwt import views as jwt_views
 
+from config.throttling import (
+    AuthAccountRateThrottle,
+    AuthRateThrottle,
+    FailOpenAnonRateThrottle,
+)
+
 from .serializers import RegisterSerializer, UserSerializer
 
 User = get_user_model()
+
+
+AUTH_THROTTLES = [FailOpenAnonRateThrottle, AuthRateThrottle]
 
 
 @extend_schema(tags=["auth"], summary="Register a new user")
@@ -17,17 +26,17 @@ class RegisterView(generics.CreateAPIView):
     serializer_class = RegisterSerializer
     permission_classes = [AllowAny]
     authentication_classes = []
-    throttle_scope = "auth"
+    throttle_classes = AUTH_THROTTLES
 
 
-# simplejwt views have no throttle scope, so credential guessing would only be
-# limited by the generic anonymous rate.
 class TokenObtainPairView(jwt_views.TokenObtainPairView):
-    throttle_scope = "auth"
+    # Per IP and per target account: guessing one password from many addresses
+    # runs into the second limit.
+    throttle_classes = [*AUTH_THROTTLES, AuthAccountRateThrottle]
 
 
 class TokenRefreshView(jwt_views.TokenRefreshView):
-    throttle_scope = "auth"
+    throttle_classes = AUTH_THROTTLES
 
 
 @extend_schema(tags=["users"])
