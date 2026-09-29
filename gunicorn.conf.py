@@ -30,7 +30,7 @@ max_requests_jitter = 100
 
 # The worker heartbeat file on tmpfs: a slow overlay filesystem can otherwise stall
 # workers into timeouts. /dev/shm is absent on macOS, where gunicorn uses its default.
-worker_tmp_dir = "/dev/shm" if os.path.isdir("/dev/shm") else None
+worker_tmp_dir = "/dev/shm" if os.path.isdir("/dev/shm") else None  # nosec B108
 
 # Proxies allowed to set X-Forwarded-Proto for gunicorn itself.
 forwarded_allow_ips = os.environ.get("FORWARDED_ALLOW_IPS") or "127.0.0.1,::1"

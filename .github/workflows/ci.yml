@@ -66,6 +66,44 @@ jobs:
           DJANGO_SECURE_HSTS_PRELOAD: "1"
       - run: pytest --cov --cov-report=term-missing --cov-fail-under=95
 
+  security:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          fetch-depth: 0  # gitleaks scans the whole history
+      - uses: actions/setup-python@v6
+        with:
+          python-version: "3.12"
+          cache: pip
+          cache-dependency-path: requirements*.txt
+      - run: pip install --require-hashes -r requirements-dev.txt
+      - name: Known vulnerabilities in dependencies
+        run: pip-audit --strict --disable-pip --require-hashes -r requirements.txt -r requirements-dev.txt
+      - name: Static analysis
+        run: bandit -c pyproject.toml -r .
+      - name: Secrets in git history
+        env:
+          GITLEAKS_VERSION: 8.30.1
+          GITLEAKS_SHA256: 551f6fc83ea457d62a0d98237cbad105af8d557003051f41f3e7ca7b3f2470eb
+        run: |
+          archive="gitleaks_${GITLEAKS_VERSION}_linux_x64.tar.gz"
+          curl -sSfLO "https://github.com/gitleaks/gitleaks/releases/download/v${GITLEAKS_VERSION}/${archive}"
+          echo "${GITLEAKS_SHA256}  ${archive}" | sha256sum --check
+          tar -xzf "$archive" gitleaks
+          ./gitleaks git --redact --verbose .
+      - name: Build the image
+        run: docker build --tag cyberyozh-tasks:ci .
+      - name: Vulnerabilities in the image
+        # Pinned by commit: the action's tags were hijacked in March 2026 (GHSA-69fq-xp46-6x23).
+        uses: aquasecurity/trivy-action@57a97c7e7821a5776cebc9bb87c984fa69cba8f1  # 0.35.0
+        with:
+          version: v0.69.3
+          image-ref: cyberyozh-tasks:ci
+          severity: HIGH,CRITICAL
+          ignore-unfixed: true
+          exit-code: "1"
+
   docker:
     runs-on: ubuntu-latest
     env:

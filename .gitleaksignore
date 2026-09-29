@@ -1,0 +1,2 @@
+# Test fixture password for factory users, not a credential.
+56cb480baea984fb6cba434507aede26cd560145:tests/factories.py:generic-api-key:4

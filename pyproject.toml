@@ -17,6 +17,10 @@ ignore = ["RUF012"]
 [tool.ruff.lint.isort]
 known-first-party = ["apps", "config", "tests"]
 
+[tool.bandit]
+# Tests use asserts and fixed passwords by design.
+exclude_dirs = ["tests", ".venv"]
+
 [tool.pytest.ini_options]
 DJANGO_SETTINGS_MODULE = "config.settings"
 python_files = ["test_*.py"]

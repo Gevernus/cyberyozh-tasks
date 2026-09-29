@@ -44,7 +44,7 @@ SECRET_KEY = os.environ.get("DJANGO_SECRET_KEY", "")
 if not SECRET_KEY:
     if not DEBUG:
         raise ImproperlyConfigured("DJANGO_SECRET_KEY must be set when DEBUG is off.")
-    SECRET_KEY = "django-insecure-local-development-key"
+    SECRET_KEY = "django-insecure-local-development-key"  # nosec B105
 
 ALLOWED_HOSTS = env_list("DJANGO_ALLOWED_HOSTS", "localhost,127.0.0.1")
 CSRF_TRUSTED_ORIGINS = env_list("DJANGO_CSRF_TRUSTED_ORIGINS")
