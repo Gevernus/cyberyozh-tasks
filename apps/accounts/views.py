@@ -13,7 +13,12 @@ from config.throttling import (
     FailOpenAnonRateThrottle,
 )
 
-from .serializers import RegisterSerializer, UserSerializer
+from .serializers import (
+    RegisterSerializer,
+    TokenBlacklistSerializer,
+    TokenRefreshSerializer,
+    UserSerializer,
+)
 
 User = get_user_model()
 
@@ -36,11 +41,13 @@ class TokenObtainPairView(jwt_views.TokenObtainPairView):
 
 
 class TokenRefreshView(jwt_views.TokenRefreshView):
+    serializer_class = TokenRefreshSerializer
     throttle_classes = AUTH_THROTTLES
 
 
 @extend_schema(summary="Log out: revoke a refresh token")
 class TokenBlacklistView(jwt_views.TokenBlacklistView):
+    serializer_class = TokenBlacklistSerializer
     throttle_classes = AUTH_THROTTLES
 
 

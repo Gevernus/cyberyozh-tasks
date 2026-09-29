@@ -7,6 +7,7 @@ from django.db import connection
 from django.urls import reverse
 from rest_framework import status
 from rest_framework.test import APIClient
+from rest_framework_simplejwt.tokens import RefreshToken
 
 from apps.tasks.models import Task
 from tests.factories import TaskFactory
@@ -95,3 +96,35 @@ def test_concurrent_comments_are_all_counted(user):
     assert codes == [status.HTTP_201_CREATED] * writers
     task.refresh_from_db()
     assert task.comments_count == writers
+
+
+@pytest.mark.parametrize("rival", ["token-refresh", "token-blacklist"])
+def test_a_refresh_token_is_used_by_one_of_two_concurrent_requests(user, rival):
+    refresh = str(RefreshToken.for_user(user))
+    both_passed_check = threading.Barrier(2, timeout=RACE_WINDOW)
+    codes = []
+    original_blacklist = RefreshToken.blacklist
+
+    def blacklist_after_rival_arrives(self):
+        # As above: with the row lock the rival waits before its blacklist check.
+        with contextlib.suppress(threading.BrokenBarrierError):
+            both_passed_check.wait()
+        return original_blacklist(self)
+
+    def post(url_name: str) -> None:
+        try:
+            codes.append(APIClient().post(reverse(url_name), {"refresh": refresh}).status_code)
+        finally:
+            connection.close()
+
+    with mock.patch.object(RefreshToken, "blacklist", blacklist_after_rival_arrives):
+        threads = [
+            threading.Thread(target=post, args=(url_name,))
+            for url_name in ("token-refresh", rival)
+        ]
+        for thread in threads:
+            thread.start()
+        for thread in threads:
+            thread.join()
+
+    assert sorted(codes) == [status.HTTP_200_OK, status.HTTP_401_UNAUTHORIZED]

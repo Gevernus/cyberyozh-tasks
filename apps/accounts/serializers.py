@@ -5,6 +5,9 @@ from django.core.exceptions import ValidationError as DjangoValidationError
 from django.db import IntegrityError, transaction
 from rest_framework import serializers
 from rest_framework.settings import api_settings
+from rest_framework_simplejwt import serializers as jwt_serializers
+from rest_framework_simplejwt.settings import api_settings as jwt_settings
+from rest_framework_simplejwt.token_blacklist.models import OutstandingToken
 
 User = get_user_model()
 
@@ -60,3 +63,23 @@ def registration_failed() -> serializers.ValidationError:
     return serializers.ValidationError(
         {api_settings.NON_FIELD_ERRORS_KEY: ["Registration failed."]}, code="registration_failed"
     )
+
+
+class SingleUseRefreshMixin:
+    def validate(self, attrs):
+        # The blacklist check and the blacklisting are separate queries: two concurrent
+        # requests with one token both passed the check and both got a new pair. The
+        # token's row is locked first, so the second request waits for the first to
+        # commit and then finds the token blacklisted (401).
+        jti = self.token_class(attrs["refresh"])[jwt_settings.JTI_CLAIM]
+        with transaction.atomic():
+            OutstandingToken.objects.select_for_update().filter(jti=jti).exists()
+            return super().validate(attrs)
+
+
+class TokenRefreshSerializer(SingleUseRefreshMixin, jwt_serializers.TokenRefreshSerializer):
+    pass
+
+
+class TokenBlacklistSerializer(SingleUseRefreshMixin, jwt_serializers.TokenBlacklistSerializer):
+    pass
