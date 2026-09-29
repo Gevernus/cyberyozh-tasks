@@ -1,4 +1,4 @@
-// Mixed read/write load against the task API. See "Load test" in docs/OPERATIONS.md.
+// Mixed read/write load against the task API. See docs/load-testing.md.
 //
 //   k6 run -e BASE_URL=https://tasks.example.com -e PASSWORD=... loadtest/tasks.js
 //
