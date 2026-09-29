@@ -114,6 +114,14 @@ DATABASES = {
     )
 }
 
+# A runaway query is cancelled instead of holding a worker thread and a connection.
+# 0 disables the limit, e.g. for migrations and bulk loads.
+DB_STATEMENT_TIMEOUT_MS = env_int("DJANGO_DB_STATEMENT_TIMEOUT_MS", 5000)
+if DATABASES["default"]["ENGINE"] == "django.db.backends.postgresql" and DB_STATEMENT_TIMEOUT_MS:
+    DATABASES["default"].setdefault("OPTIONS", {})["options"] = (
+        f"-c statement_timeout={DB_STATEMENT_TIMEOUT_MS}"
+    )
+
 # Throttle counters must be shared by all gunicorn processes, hence Redis in
 # production. LocMem is per-process and only suits local runs and tests.
 REDIS_URL = os.environ.get("REDIS_URL", "")
