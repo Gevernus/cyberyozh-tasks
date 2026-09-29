@@ -1,3 +1,5 @@
+from unittest import mock
+
 import pytest
 from django.contrib.auth import get_user_model
 from django.urls import reverse
@@ -29,13 +31,65 @@ def test_register_rejects_weak_password(api_client):
     assert not User.objects.filter(username="dave").exists()
 
 
-def test_register_rejects_duplicate_username(api_client, user):
-    response = api_client.post(
-        reverse("auth-register"), {"username": user.username, "password": "Sup3r-secret!"}
-    )
+REGISTRATION_FAILED = {"non_field_errors": ["Registration failed."]}
+
+
+def register(client, username: str, **extra):
+    payload = {"username": username, "password": "Sup3r-secret!", **extra}
+    return client.post(reverse("auth-register"), payload)
+
+
+def test_register_does_not_reveal_a_taken_username(api_client, user):
+    response = register(api_client, user.username, email="someone@example.com")
 
     assert response.status_code == status.HTTP_400_BAD_REQUEST
-    assert "username" in response.data
+    assert response.json() == REGISTRATION_FAILED
+    assert User.objects.filter(username=user.username).count() == 1
+
+
+def test_taken_username_hashes_the_password_like_a_new_account(api_client, user):
+    with mock.patch("apps.accounts.serializers.make_password") as make_password:
+        register(api_client, user.username)
+
+    make_password.assert_called_once_with("Sup3r-secret!")
+
+
+def test_taken_username_is_checked_after_the_other_fields(api_client, user):
+    response = api_client.post(
+        reverse("auth-register"), {"username": user.username, "password": "123"}
+    )
+
+    assert set(response.json()) == {"password"}
+
+
+def test_concurrent_registration_of_one_username_fails_generically(api_client, user):
+    exists = mock.patch("django.db.models.QuerySet.exists", return_value=False)
+
+    with exists:
+        response = register(api_client, user.username)
+
+    assert response.status_code == status.HTTP_400_BAD_REQUEST
+    assert response.json() == REGISTRATION_FAILED
+
+
+def test_register_explains_an_invalid_username(api_client):
+    response = register(api_client, "no spaces allowed")
+
+    assert response.status_code == status.HTTP_400_BAD_REQUEST
+    assert "username" in response.json()
+
+
+def test_register_requires_ten_characters_in_a_password(api_client):
+    too_short = api_client.post(
+        reverse("auth-register"), {"username": "erin", "password": "Xy7-long!"}
+    )
+    long_enough = api_client.post(
+        reverse("auth-register"), {"username": "erin", "password": "Xy7-long!!"}
+    )
+
+    assert too_short.status_code == status.HTTP_400_BAD_REQUEST
+    assert "password" in too_short.json()
+    assert long_enough.status_code == status.HTTP_201_CREATED
 
 
 def test_obtain_and_refresh_jwt(api_client, user):
