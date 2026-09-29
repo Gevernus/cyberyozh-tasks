@@ -110,6 +110,7 @@ class AuthAccountRateThrottle(LocalFallbackMixin, throttling.SimpleRateThrottle)
             logger.warning(
                 "Account throttled: token requests over %s from all addresses",
                 self.rate,
-                extra={"account": self.account[:150]},
+                # The digest from the throttle key: which account, without the login in logs.
+                extra={"account": digest(self.account)},
             )
         return False

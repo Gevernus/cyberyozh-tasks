@@ -4,6 +4,8 @@ import pytest
 from django.urls import reverse
 from rest_framework import status
 
+from config.throttling import digest
+
 pytestmark = pytest.mark.django_db
 
 
@@ -134,7 +136,7 @@ def test_reaching_the_account_limit_is_logged_once_per_window(api_client, thrott
     assert codes == [401, 429, 429]
     [record] = [r for r in caplog.records if r.getMessage().startswith("Account throttled")]
     assert record.levelno == logging.WARNING
-    assert record.account == "alice"
+    assert record.account == digest("alice")
 
 
 @pytest.mark.parametrize("payload", [{}, {"username": ""}, {"username": ["a", "b"]}])
