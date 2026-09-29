@@ -9,6 +9,8 @@ REST API для управления задачами на Django 5.2 и Django 
 `POST /api/auth/register/` → `POST /api/auth/token/` → Authorize с access-токеном →
 запросы к `/api/tasks/`.
 
+Задание — на бэкенд, поэтому фронтенда нет: запросы удобно проверять в Swagger UI.
+
 ## Быстрый старт
 
 Локально нужен Python 3.12+; база — SQLite, переменные окружения не нужны:
