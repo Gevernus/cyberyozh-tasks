@@ -1,0 +1,12 @@
+name: Set up Python
+description: Python 3.12 with the locked development dependencies.
+runs:
+  using: composite
+  steps:
+    - uses: actions/setup-python@v6
+      with:
+        python-version: "3.12"
+        cache: pip
+        cache-dependency-path: requirements*.txt
+    - run: pip install --require-hashes -r requirements-dev.txt
+      shell: bash
