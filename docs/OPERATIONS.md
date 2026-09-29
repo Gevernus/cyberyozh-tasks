@@ -192,16 +192,22 @@ PgBouncer по умолчанию отвергает, а в режиме `transa
 `JWT_REFRESH_TOKEN_DAYS`) удаляет сервис `flush-tokens`: `manage.py flushexpiredtokens` при
 старте и дальше раз в сутки, без `statement_timeout` — у `expires_at` нет индекса, запрос
 читает всю таблицу. Так в ней остаются токены не больше чем за `JWT_REFRESH_TOKEN_DAYS` + 1
-дней. Сервис должен быть `running` (`docker compose ps flush-tokens`), команда ничего не
-печатает, в `logs` — только ошибки. Разово: `docker compose run --rm migrate python manage.py
+дней. Сервис должен быть `healthy` (`docker compose ps flush-tokens`): после каждой успешной
+чистки он обновляет `/tmp/flushed`, и если файлу больше 25 часов (запуск завис или падает),
+статус становится `unhealthy`. Запуск дольше часа прерывается; при ошибке сервис ждёт 5 минут
+и завершается, `restart`
+перезапускает его — без частых переподключений к лежащей базе. Healthcheck использует
+`start_interval` (Docker Engine 25+). Команда ничего не печатает, в `logs` — только ошибки. Разово: `docker compose run --rm migrate python manage.py
 flushexpiredtokens`.
 
 **Массовые операции в админке** ограничены таймаутом воркера gunicorn (30 с) и
 `statement_timeout` (5 с). Удаление комментариев — один SQL-запрос при любом числе задач
 (3000 комментариев к 3000 задачам через «выбрать все» и «Удалить выбранные» — 0,6 с), но
 админка загружает все выбранные объекты для страницы подтверждения и журнала, так что
-десятки тысяч строк через неё не удалить. Крупные чистки — из одноразового контейнера, где
-нет ни того, ни другого лимита:
+десятки тысяч строк через неё не удалить. Сам запрос укладывается в `statement_timeout` 5 с
+примерно до 100 тыс. комментариев за одну операцию (100 тыс. на 52 тыс. задач — 4,4 с;
+300 тыс. — отмена по таймауту). Крупные чистки — из одноразового контейнера, где нет ни того,
+ни другого лимита, либо пачками:
 
 ```bash
 docker compose run --rm migrate python manage.py shell -c \
@@ -361,5 +367,5 @@ k6 run -e BASE_URL=https://$DOMAIN -e PASSWORD="$LOAD_PASSWORD" \
 | сертификат не выпускается | `logs caddy` (`acme`, `rateLimited`) | DNS → хост, порты 80/443, не удалять `caddy_data`; временно `CADDY_TLS=internal` |
 | `migrate` завершился с ошибкой, web не стартует | `docker compose logs migrate` | исправить причину, `docker compose up -d --wait`: миграции с `atomic = False` перезапускаемы — `INVALID`-индекс пересоздаётся, уже добавленная колонка не добавляется повторно, счётчики пересчитываются заново. `migrate --fake` не применять: пропущенное заполнение никто не доделает |
 | `comments_count` задачи не совпадает с числом комментариев | `SELECT count(*) FROM tasks_comment WHERE task_id = …` | `docker compose run --rm migrate python manage.py reconcile_comments_count` |
-| таблица outstanding-токенов растёт | `docker compose ps flush-tokens`, `logs flush-tokens`; `SELECT count(*) FROM token_blacklist_outstandingtoken WHERE expires_at < now()` | `docker compose up -d flush-tokens` |
+| таблица outstanding-токенов растёт | `docker compose ps flush-tokens`, `logs flush-tokens`; `SELECT count(*) FROM token_blacklist_outstandingtoken WHERE expires_at < now()` | `docker compose restart flush-tokens` |
 | смена `DJANGO_SECRET_KEY` | | все JWT и сессии станут недействительны: `up -d` в окно обслуживания |

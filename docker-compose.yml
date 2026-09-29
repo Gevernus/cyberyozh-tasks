@@ -75,14 +75,28 @@ services:
   # are deleted once a day. The query scans the table, hence no statement timeout.
   flush-tokens:
     <<: *app
-    command: ["sh", "-c", "while true; do python manage.py flushexpiredtokens; sleep 86400; done"]
+    # A successful run touches a heartbeat file; a failed or hour-long run waits five minutes
+    # before exiting so `restart` retries without hammering a database that is down.
+    command:
+      - sh
+      - -c
+      - >-
+        while true; do
+        if timeout 3600 python manage.py flushexpiredtokens; then touch /tmp/flushed; else sleep 300; exit 1; fi;
+        sleep 86400;
+        done
     environment:
       <<: *app-environment
       DJANGO_DB_STATEMENT_TIMEOUT_MS: "0"
     # Forwards SIGTERM to the shell, which as PID 1 would ignore it.
     init: true
+    # Healthy while the last successful flush is under 25 hours old: a hung run turns the
+    # service unhealthy. `up --wait` needs a healthcheck here (start_interval: Engine 25+).
     healthcheck:
-      disable: true
+      test: ["CMD-SHELL", "test -n \"$$(find /tmp/flushed -mmin -1500)\""]
+      interval: 5m
+      start_period: 2m
+      start_interval: 2s
     restart: unless-stopped
     depends_on:
       migrate:

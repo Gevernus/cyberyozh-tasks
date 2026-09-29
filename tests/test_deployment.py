@@ -33,9 +33,14 @@ def test_migrations_run_once_before_web():
 def test_expired_tokens_are_flushed_daily():
     flush = SERVICES["flush-tokens"]
 
-    assert "python manage.py flushexpiredtokens; sleep 86400" in flush["command"][-1]
+    loop = flush["command"][-1]
+    # Success refreshes the heartbeat; failure backs off, then exits so `restart` retries.
+    assert "if timeout 3600 python manage.py flushexpiredtokens; then touch /tmp/flushed" in loop
+    assert "else sleep 300; exit 1; fi" in loop
     assert flush["restart"] == "unless-stopped"
-    assert flush["healthcheck"] == {"disable": True}
+    # `up --wait` needs a healthcheck, and it must go stale when runs stop succeeding.
+    assert "find /tmp/flushed -mmin -1500" in flush["healthcheck"]["test"][-1]
+    assert flush["healthcheck"]["start_interval"] == "2s"
     assert flush["depends_on"]["migrate"] == {"condition": "service_completed_successfully"}
 
 
