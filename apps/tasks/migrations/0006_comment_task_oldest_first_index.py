@@ -1,11 +1,8 @@
-"""One index for a task's comments in cursor order, instead of two.
+"""One index for a task's comments in cursor order.
 
-Comments are paged by (created_at, id). With the (task, created_at) index, rows that
-share a created_at were sorted by id on every page; (task, created_at, id) returns
-them in order. It also serves lookups by task alone, so the plain foreign key index
-on task_id only slowed down writes.
-
-Non-atomic: indexes are built and dropped CONCURRENTLY. Every step can be repeated.
+(task, created_at, id) returns a page without sorting and serves lookups by task,
+so it replaces both the (task, created_at) index and the foreign key index.
+Non-atomic: indexes are built and dropped concurrently, see core.migration_operations.
 """
 
 import django.db.models.deletion
@@ -14,26 +11,22 @@ from django.db import migrations, models
 from core.migration_operations import (
     AddIndexConcurrently,
     RemoveIndexConcurrently,
-    is_postgresql,
+    create_index,
+    drop_index,
 )
 
-# Django's name for the plain foreign key index on tasks_comment.task_id.
-FOREIGN_KEY_INDEX = "tasks_comment_task_id_8e8bc4fe"
+# Django's name for the foreign key index.
+FOREIGN_KEY_INDEXES = {"tasks_comment_task_id_8e8bc4fe": "task_id"}
 
 
-def concurrently(schema_editor) -> str:
-    return " CONCURRENTLY" if is_postgresql(schema_editor) else ""
+def drop_foreign_key_indexes(apps, schema_editor):
+    for name in FOREIGN_KEY_INDEXES:
+        drop_index(schema_editor, name)
 
 
-def drop_foreign_key_index(apps, schema_editor):
-    schema_editor.execute(f'DROP INDEX{concurrently(schema_editor)} IF EXISTS "{FOREIGN_KEY_INDEX}"')
-
-
-def create_foreign_key_index(apps, schema_editor):
-    schema_editor.execute(
-        f'CREATE INDEX{concurrently(schema_editor)} IF NOT EXISTS "{FOREIGN_KEY_INDEX}" '
-        'ON "tasks_comment" ("task_id")'
-    )
+def create_foreign_key_indexes(apps, schema_editor):
+    for name, column in FOREIGN_KEY_INDEXES.items():
+        create_index(schema_editor, name, "tasks_comment", f'("{column}")')
 
 
 class Migration(migrations.Migration):
@@ -51,11 +44,10 @@ class Migration(migrations.Migration):
             ),
         ),
         RemoveIndexConcurrently(model_name="comment", name="tasks_comme_task_id_860403_idx"),
-        # A plain AlterField would also drop and re-add the foreign key constraint,
-        # which re-validates every row while holding a lock that blocks writes.
+        # AlterField would also re-create the foreign key constraint, see 0003.
         migrations.SeparateDatabaseAndState(
             database_operations=[
-                migrations.RunPython(drop_foreign_key_index, create_foreign_key_index),
+                migrations.RunPython(drop_foreign_key_indexes, create_foreign_key_indexes),
             ],
             state_operations=[
                 migrations.AlterField(

@@ -1,36 +1,35 @@
-"""Indexes for the newest-first task list, built without blocking writes.
+"""Indexes for the newest-first task list.
 
-Non-atomic: CREATE/DROP INDEX CONCURRENTLY cannot run in a transaction. Every step
-can be repeated, so a migration that failed midway can simply be run again.
+The composite indexes replace the plain foreign key ones. Non-atomic: indexes are
+built and dropped concurrently, see core.migration_operations.
 """
 
 import django.db.models.deletion
 from django.conf import settings
 from django.db import migrations, models
 
-from core.migration_operations import AddIndexConcurrently, RemoveIndexConcurrently
+from core.migration_operations import (
+    AddIndexConcurrently,
+    RemoveIndexConcurrently,
+    create_index,
+    drop_index,
+)
 
-# Django's names for the plain foreign key indexes the composite ones replace.
+# Django's names for the foreign key indexes.
 FOREIGN_KEY_INDEXES = {
     "tasks_task_assignee_id_2c3ca866": "assignee_id",
     "tasks_task_author_id_33a50930": "author_id",
 }
 
 
-def concurrently(schema_editor) -> str:
-    return " CONCURRENTLY" if schema_editor.connection.vendor == "postgresql" else ""
-
-
 def drop_foreign_key_indexes(apps, schema_editor):
     for name in FOREIGN_KEY_INDEXES:
-        schema_editor.execute(f'DROP INDEX{concurrently(schema_editor)} IF EXISTS "{name}"')
+        drop_index(schema_editor, name)
 
 
 def create_foreign_key_indexes(apps, schema_editor):
     for name, column in FOREIGN_KEY_INDEXES.items():
-        schema_editor.execute(
-            f'CREATE INDEX{concurrently(schema_editor)} "{name}" ON "tasks_task" ("{column}")'
-        )
+        create_index(schema_editor, name, "tasks_task", f'("{column}")')
 
 
 class Migration(migrations.Migration):
@@ -64,8 +63,8 @@ class Migration(migrations.Migration):
         ),
         RemoveIndexConcurrently(model_name="task", name="tasks_task_assigne_7928f6_idx"),
         RemoveIndexConcurrently(model_name="task", name="tasks_task_author__4d54e1_idx"),
-        # A plain AlterField would also drop and re-add the foreign key constraints,
-        # which re-validates every row while holding a lock that blocks writes.
+        # AlterField would also re-create the foreign key constraints, re-validating
+        # every row under a lock that blocks writes.
         migrations.SeparateDatabaseAndState(
             database_operations=[
                 migrations.RunPython(drop_foreign_key_indexes, create_foreign_key_indexes),

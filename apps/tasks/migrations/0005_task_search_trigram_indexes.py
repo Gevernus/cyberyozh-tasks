@@ -1,17 +1,14 @@
-"""Trigram indexes for task search on PostgreSQL.
+"""Trigram indexes for task search, PostgreSQL only.
 
-Search is `icontains`, which PostgreSQL runs as UPPER(column::text) LIKE '%term%'.
-A B-tree cannot serve that, so without these indexes every search that matches
-few rows scans the whole table. The indexes are on exactly that expression.
-Other databases skip this migration; the model does not declare the indexes
-because SQLite cannot create them.
-
-Built CONCURRENTLY, so the table stays writable, hence non-atomic. An interrupted
-build leaves an INVALID index behind, so each index is dropped before it is built:
-a failed migration can simply be run again.
+Search runs `icontains` as UPPER(column::text) LIKE '%term%', which a B-tree cannot
+serve; the indexes are on that expression. The model does not declare them because
+SQLite cannot build them. Non-atomic: indexes are built concurrently, see
+core.migration_operations.
 """
 
 from django.db import migrations
+
+from core.migration_operations import create_index, drop_index, is_postgresql
 
 INDEXES = {
     "task_title_trgm_idx": "title",
@@ -20,22 +17,20 @@ INDEXES = {
 
 
 def create_indexes(apps, schema_editor):
-    if schema_editor.connection.vendor != "postgresql":
+    if not is_postgresql(schema_editor):
         return
     schema_editor.execute("CREATE EXTENSION IF NOT EXISTS pg_trgm")
     for name, column in INDEXES.items():
-        schema_editor.execute(f'DROP INDEX CONCURRENTLY IF EXISTS "{name}"')
-        schema_editor.execute(
-            f'CREATE INDEX CONCURRENTLY "{name}" ON "tasks_task" '
-            f'USING gin ((UPPER("{column}"::text)) gin_trgm_ops)'
+        create_index(
+            schema_editor, name, "tasks_task", f'USING gin ((UPPER("{column}"::text)) gin_trgm_ops)'
         )
 
 
 def drop_indexes(apps, schema_editor):
-    if schema_editor.connection.vendor != "postgresql":
+    if not is_postgresql(schema_editor):
         return
     for name in INDEXES:
-        schema_editor.execute(f'DROP INDEX CONCURRENTLY IF EXISTS "{name}"')
+        drop_index(schema_editor, name)
 
 
 class Migration(migrations.Migration):
