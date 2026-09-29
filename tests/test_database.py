@@ -43,3 +43,17 @@ def test_connections_carry_the_statement_timeout():
         (value,) = cursor.fetchone()
 
     assert value == "5s"
+
+
+@pytest.mark.django_db
+@pytest.mark.skipif(connection.vendor != "postgresql", reason="PostgreSQL indexes")
+def test_task_search_is_backed_by_trigram_indexes():
+    with connection.cursor() as cursor:
+        cursor.execute(
+            "SELECT indexname, indexdef FROM pg_indexes WHERE tablename = 'tasks_task'"
+            " AND indexname LIKE '%%trgm%%'"
+        )
+        indexes = dict(cursor.fetchall())
+
+    assert set(indexes) == {"task_title_trgm_idx", "task_description_trgm_idx"}
+    assert all("gin_trgm_ops" in definition for definition in indexes.values())
