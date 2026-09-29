@@ -1,6 +1,8 @@
 import contextlib
 import threading
 import time
+from collections.abc import Callable
+from functools import partial
 from unittest import mock
 
 import pytest
@@ -26,6 +28,22 @@ pytestmark = [
 RACE_WINDOW = 2.0
 
 
+def run_in_threads(*targets: Callable[[], None]) -> None:
+    """Run each target in a thread with its own database connection; wait for all."""
+
+    def run(target: Callable[[], None]) -> None:
+        try:
+            target()
+        finally:
+            connection.close()
+
+    threads = [threading.Thread(target=run, args=(target,)) for target in targets]
+    for thread in threads:
+        thread.start()
+    for thread in threads:
+        thread.join()
+
+
 @pytest.mark.parametrize(
     ("action", "initial_status", "final_status"),
     [
@@ -33,7 +51,9 @@ RACE_WINDOW = 2.0
         ("reopen", Task.Status.DONE, Task.Status.TODO),
     ],
 )
-def test_concurrent_status_changes_apply_once(user, action, initial_status, final_status):
+def test_concurrent_status_changes_apply_once(
+    client_for, user, action, initial_status, final_status
+):
     task = TaskFactory(author=user, status=initial_status)
     url = reverse(f"task-{action}", args=[task.pk])
     both_passed_check = threading.Barrier(2, timeout=RACE_WINDOW)
@@ -49,19 +69,10 @@ def test_concurrent_status_changes_apply_once(user, action, initial_status, fina
         original_save(self, *args, **kwargs)
 
     def request() -> None:
-        try:
-            client = APIClient()
-            client.force_authenticate(user=user)
-            responses.append(client.post(url))
-        finally:
-            connection.close()
+        responses.append(client_for(user).post(url))
 
     with mock.patch.object(Task, "save", save_after_rival_arrives):
-        threads = [threading.Thread(target=request) for _ in range(2)]
-        for thread in threads:
-            thread.start()
-        for thread in threads:
-            thread.join()
+        run_in_threads(request, request)
 
     assert sorted(response.status_code for response in responses) == [
         status.HTTP_200_OK,
@@ -72,7 +83,7 @@ def test_concurrent_status_changes_apply_once(user, action, initial_status, fina
     assert (task.completed_at is not None) == task.is_completed
 
 
-def test_concurrent_comments_are_all_counted(user):
+def test_concurrent_comments_are_all_counted(client_for, user):
     task = TaskFactory()
     url = reverse("task-comment-list", args=[task.pk])
     writers = 8
@@ -80,19 +91,11 @@ def test_concurrent_comments_are_all_counted(user):
     codes = []
 
     def comment() -> None:
-        try:
-            client = APIClient()
-            client.force_authenticate(user=user)
-            start.wait()
-            codes.append(client.post(url, {"text": "me too"}).status_code)
-        finally:
-            connection.close()
+        client = client_for(user)
+        start.wait()
+        codes.append(client.post(url, {"text": "me too"}).status_code)
 
-    threads = [threading.Thread(target=comment) for _ in range(writers)]
-    for thread in threads:
-        thread.start()
-    for thread in threads:
-        thread.join()
+    run_in_threads(*[comment] * writers)
 
     assert codes == [status.HTTP_201_CREATED] * writers
     task.refresh_from_db()
@@ -107,23 +110,16 @@ def test_comments_deleted_by_two_requests_at_once_are_decremented_once():
     deleted = []
 
     def delete(first: bool) -> None:
-        try:
-            if not first:
-                first_deleted.wait(RACE_WINDOW)
-            with transaction.atomic():
-                deleted.append(Comment.objects.filter(pk__in=selected).delete()[0])
-                if first:
-                    first_deleted.set()
-                    # The rival reaches the same rows meanwhile and waits for this commit.
-                    time.sleep(RACE_WINDOW / 4)
-        finally:
-            connection.close()
+        if not first:
+            first_deleted.wait(RACE_WINDOW)
+        with transaction.atomic():
+            deleted.append(Comment.objects.filter(pk__in=selected).delete()[0])
+            if first:
+                first_deleted.set()
+                # The rival reaches the same rows meanwhile and waits for this commit.
+                time.sleep(RACE_WINDOW / 4)
 
-    threads = [threading.Thread(target=delete, args=(first,)) for first in (True, False)]
-    for thread in threads:
-        thread.start()
-    for thread in threads:
-        thread.join()
+    run_in_threads(partial(delete, first=True), partial(delete, first=False))
 
     assert deleted == [3, 0]
     task.refresh_from_db()
@@ -144,19 +140,9 @@ def test_a_refresh_token_is_used_by_one_of_two_concurrent_requests(user, rival):
         return original_blacklist(self)
 
     def post(url_name: str) -> None:
-        try:
-            codes.append(APIClient().post(reverse(url_name), {"refresh": refresh}).status_code)
-        finally:
-            connection.close()
+        codes.append(APIClient().post(reverse(url_name), {"refresh": refresh}).status_code)
 
     with mock.patch.object(RefreshToken, "blacklist", blacklist_after_rival_arrives):
-        threads = [
-            threading.Thread(target=post, args=(url_name,))
-            for url_name in ("token-refresh", rival)
-        ]
-        for thread in threads:
-            thread.start()
-        for thread in threads:
-            thread.join()
+        run_in_threads(partial(post, "token-refresh"), partial(post, rival))
 
     assert sorted(codes) == [status.HTTP_200_OK, status.HTTP_401_UNAUTHORIZED]

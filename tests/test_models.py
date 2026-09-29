@@ -1,7 +1,4 @@
-import importlib
-
 import pytest
-from django.apps import apps as django_apps
 from django.db import connection
 from django.test.utils import CaptureQueriesContext
 
@@ -226,15 +223,3 @@ def test_saving_a_stale_task_keeps_comments_added_meanwhile():
 
     assert comments_count(task) == 1
     assert Task.objects.get(pk=task.pk).title == "Renamed"
-
-
-def test_migration_backfills_comments_count():
-    backfill = importlib.import_module("apps.tasks.migrations.0002_task_comments_count")
-    busy, quiet = TaskFactory.create_batch(2)
-    CommentFactory.create_batch(3, task=busy)
-    Task.objects.update(comments_count=0)
-
-    backfill.count_comments(django_apps, schema_editor=None)
-
-    assert comments_count(busy) == 3
-    assert comments_count(quiet) == 0

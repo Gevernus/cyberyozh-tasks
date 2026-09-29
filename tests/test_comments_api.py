@@ -102,6 +102,17 @@ def test_task_author_cannot_edit_someone_elses_comment(auth_client, user, other_
     assert Comment.objects.filter(pk=comment.pk, text=comment.text).exists()
 
 
+def test_other_users_cannot_delete_a_comment(auth_client, other_user):
+    comment = CommentFactory(author=other_user)
+
+    response = auth_client.delete(detail_url(comment))
+
+    assert response.status_code == status.HTTP_403_FORBIDDEN
+    assert Comment.objects.filter(pk=comment.pk).exists()
+    comment.task.refresh_from_db()
+    assert comment.task.comments_count == 1
+
+
 def test_comment_cannot_be_moved_to_another_task(auth_client, user):
     comment = CommentFactory(author=user)
     other_task = TaskFactory()

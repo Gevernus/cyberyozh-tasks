@@ -1,4 +1,7 @@
+import runpy
+
 import pytest
+from django.conf import settings as django_settings
 from django.core.cache import cache
 from rest_framework.test import APIClient
 from rest_framework.throttling import SimpleRateThrottle
@@ -70,18 +73,32 @@ def other_user(db):
 
 
 @pytest.fixture
-def auth_client(user) -> APIClient:
-    """Client authenticated as ``user``; JWT itself is covered in test_auth."""
-    client = APIClient()
-    client.force_authenticate(user=user)
-    return client
-
-
-@pytest.fixture
 def client_for():
+    """Clients authenticated without a token; JWT itself is covered in test_auth."""
+
     def _client_for(some_user) -> APIClient:
         client = APIClient()
         client.force_authenticate(user=some_user)
         return client
 
     return _client_for
+
+
+@pytest.fixture
+def auth_client(client_for, user) -> APIClient:
+    return client_for(user)
+
+
+@pytest.fixture
+def load_settings(monkeypatch):
+    """Evaluate config/settings.py afresh; a None value unsets the variable."""
+
+    def _load(**env: str | None) -> dict:
+        for name, value in env.items():
+            if value is None:
+                monkeypatch.delenv(name, raising=False)
+            else:
+                monkeypatch.setenv(name, value)
+        return runpy.run_path(str(django_settings.BASE_DIR / "config" / "settings.py"))
+
+    return _load

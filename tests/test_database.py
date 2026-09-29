@@ -1,12 +1,8 @@
-import runpy
-
 import pytest
-from django.conf import settings
 from django.db import connection
 from django.db.migrations.loader import MigrationLoader
 from django.db.migrations.operations import AddIndex, RemoveIndex
 
-SETTINGS_FILE = str(settings.BASE_DIR / "config" / "settings.py")
 POSTGRES_URL = "postgres://app:secret@db:5432/tasks"
 
 
@@ -18,21 +14,16 @@ POSTGRES_URL = "postgres://app:secret@db:5432/tasks"
         ({"DJANGO_DB_STATEMENT_TIMEOUT_MS": "0"}, {}),
     ],
 )
-def test_statement_timeout_on_postgresql(monkeypatch, env, options):
-    monkeypatch.setenv("DATABASE_URL", POSTGRES_URL)
-    monkeypatch.delenv("DJANGO_DB_STATEMENT_TIMEOUT_MS", raising=False)
-    for name, value in env.items():
-        monkeypatch.setenv(name, value)
-
-    loaded = runpy.run_path(SETTINGS_FILE)
+def test_statement_timeout_on_postgresql(load_settings, env, options):
+    loaded = load_settings(
+        **{"DATABASE_URL": POSTGRES_URL, "DJANGO_DB_STATEMENT_TIMEOUT_MS": None, **env}
+    )
 
     assert loaded["DATABASES"]["default"].get("OPTIONS", {}) == options
 
 
-def test_no_statement_timeout_option_for_sqlite(monkeypatch):
-    monkeypatch.setenv("DATABASE_URL", "sqlite:///:memory:")
-
-    loaded = runpy.run_path(SETTINGS_FILE)
+def test_no_statement_timeout_option_for_sqlite(load_settings):
+    loaded = load_settings(DATABASE_URL="sqlite:///:memory:")
 
     assert "options" not in loaded["DATABASES"]["default"].get("OPTIONS", {})
 

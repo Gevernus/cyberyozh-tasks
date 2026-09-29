@@ -6,7 +6,7 @@ from django.urls import reverse
 from rest_framework import status
 from rest_framework_simplejwt.tokens import AccessToken
 
-from tests.factories import DEFAULT_PASSWORD
+from tests.factories import DEFAULT_PASSWORD, UserFactory
 
 User = get_user_model()
 
@@ -63,11 +63,15 @@ def test_taken_username_is_checked_after_the_other_fields(api_client, user):
     assert set(response.json()) == {"password"}
 
 
-def test_concurrent_registration_of_one_username_fails_generically(api_client, user):
-    exists = mock.patch("django.db.models.QuerySet.exists", return_value=False)
+def test_concurrent_registration_of_one_username_fails_generically(api_client):
+    create_user = User.objects.create_user
 
-    with exists:
-        response = register(api_client, user.username)
+    def rival_registers_first(**fields):
+        UserFactory(username=fields["username"])
+        return create_user(**fields)
+
+    with mock.patch.object(User.objects, "create_user", side_effect=rival_registers_first):
+        response = register(api_client, "dave")
 
     assert response.status_code == status.HTTP_400_BAD_REQUEST
     assert response.json() == REGISTRATION_FAILED

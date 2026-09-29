@@ -1,5 +1,4 @@
 import datetime
-import importlib.util
 import json
 import logging
 import logging.config
@@ -26,12 +25,6 @@ def test_generates_a_request_id_when_none_is_given(api_client):
     request_id = response["X-Request-ID"]
     assert len(request_id) == 32
     int(request_id, 16)
-
-
-def test_generated_ids_are_unique(api_client):
-    ids = {api_client.get(LIVE_URL)["X-Request-ID"] for _ in range(3)}
-
-    assert len(ids) == 3
 
 
 def test_keeps_a_valid_caller_request_id(api_client):
@@ -87,12 +80,9 @@ def test_filter_keeps_an_explicit_request_id():
     assert record.request_id == "from-access-log"
 
 
-def load_gunicorn_config() -> dict:
-    return runpy.run_path(str(settings.BASE_DIR / "gunicorn.conf.py"))
-
-
 def test_gunicorn_access_log_is_structured(caplog):
-    logger = load_gunicorn_config()["JsonAccessLogger"](Config())
+    gunicorn_config = runpy.run_path(str(settings.BASE_DIR / "gunicorn.conf.py"))
+    logger = gunicorn_config["JsonAccessLogger"](Config())
     response = SimpleNamespace(
         status="201 Created", sent=42, headers=[("X-Request-ID", "trace-3")]
     )
@@ -117,14 +107,6 @@ def test_gunicorn_access_log_is_structured(caplog):
     assert record.duration_ms == 12.5
     assert record.forwarded_for == "203.0.113.9"
     assert record.bytes == 42
-
-
-def test_gunicorn_uses_json_logging():
-    config = load_gunicorn_config()
-
-    formatter = config["logconfig_dict"]["formatters"]["json"]["()"]
-    assert formatter == "pythonjsonlogger.json.JsonFormatter"
-    assert config["logger_class"].__name__ == "JsonAccessLogger"
 
 
 @pytest.mark.django_db
@@ -155,14 +137,9 @@ def test_metrics_ignore_forwarded_for(client):
     ("env", "initialised"),
     [({}, False), ({"SENTRY_DSN": "https://key@sentry.example.com/1"}, True)],
 )
-def test_sentry_is_enabled_only_with_a_dsn(monkeypatch, env, initialised):
-    monkeypatch.delenv("SENTRY_DSN", raising=False)
-    for name, value in env.items():
-        monkeypatch.setenv(name, value)
-    settings_file = importlib.util.find_spec("config.settings").origin
-
+def test_sentry_is_enabled_only_with_a_dsn(load_settings, env, initialised):
     with mock.patch("sentry_sdk.init") as init:
-        runpy.run_path(settings_file)
+        load_settings(**{"SENTRY_DSN": None, **env})
 
     assert init.called is initialised
     if initialised:

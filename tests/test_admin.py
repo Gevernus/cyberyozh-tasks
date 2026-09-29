@@ -1,16 +1,12 @@
 import importlib
-import runpy
 from contextlib import ExitStack
 
 import pytest
-from django.conf import settings
 from django.test import override_settings
 from django.urls import clear_url_caches
 from rest_framework import status
 
 import config.urls
-
-SETTINGS_FILE = settings.BASE_DIR / "config" / "settings.py"
 
 
 @pytest.fixture
@@ -68,14 +64,10 @@ def test_admin_path_is_configurable(client, load_urls):
         ({"DJANGO_ADMIN_URL": "/backstage"}, True, "backstage/"),
     ],
 )
-def test_admin_settings_from_environment(monkeypatch, env, enabled, url):
-    for name in ("DJANGO_DEBUG", "DJANGO_ADMIN_ENABLED", "DJANGO_ADMIN_URL"):
-        monkeypatch.delenv(name, raising=False)
-    monkeypatch.setenv("DJANGO_SECRET_KEY", "test-only")
-    for name, value in env.items():
-        monkeypatch.setenv(name, value)
+def test_admin_settings_from_environment(load_settings, env, enabled, url):
+    unset = dict.fromkeys(["DJANGO_DEBUG", "DJANGO_ADMIN_ENABLED", "DJANGO_ADMIN_URL"])
 
-    loaded = runpy.run_path(str(SETTINGS_FILE))
+    loaded = load_settings(**{**unset, "DJANGO_SECRET_KEY": "test-only", **env})
 
     assert loaded["ADMIN_ENABLED"] is enabled
     assert loaded["ADMIN_URL"] == url
