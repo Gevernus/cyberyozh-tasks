@@ -340,6 +340,6 @@ k6 run -e BASE_URL=https://$DOMAIN -e PASSWORD="$LOAD_PASSWORD" \
 | `WARNING` `Account throttled` в логе | поле `account`; адреса попыток входа за час — `forwarded_for` в access-логе | распределённый подбор или блокировка пользователя: закрыть адреса в Caddy или файрволе; владельцу откроется вход, когда попытки выйдут из часового окна |
 | `canceling statement due to statement timeout` | запрос в логе, `EXPLAIN ANALYZE` | индекс или ограничение запроса; разово — поднять `DJANGO_DB_STATEMENT_TIMEOUT_MS` |
 | сертификат не выпускается | `logs caddy` (`acme`, `rateLimited`) | DNS → хост, порты 80/443, не удалять `caddy_data`; временно `CADDY_TLS=internal` |
-| `migrate` завершился с ошибкой, web не стартует | `docker compose logs migrate` | исправить причину, `docker compose up -d --wait`; прерванная сборка индекса оставляет `INVALID`-индекс, повторный запуск его пересоздаёт |
+| `migrate` завершился с ошибкой, web не стартует | `docker compose logs migrate` | исправить причину, `docker compose up -d --wait`: миграции с `atomic = False` перезапускаемы — `INVALID`-индекс пересоздаётся, уже добавленная колонка не добавляется повторно, счётчики пересчитываются заново. `migrate --fake` не применять: пропущенное заполнение никто не доделает |
 | таблица outstanding-токенов растёт | `SELECT count(*) FROM token_blacklist_outstandingtoken` | `manage.py flushexpiredtokens` по расписанию |
 | смена `DJANGO_SECRET_KEY` | | все JWT и сессии станут недействительны: `up -d` в окно обслуживания |

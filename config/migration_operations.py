@@ -1,13 +1,18 @@
-"""Index operations that keep a live table writable while they run.
+"""Schema operations for non-atomic migrations on a live database.
 
 A plain CREATE INDEX blocks writes to the table until the index is built, minutes
 on a large table. PostgreSQL's CONCURRENTLY variants do not, but they cannot run in
 a transaction: a migration using them sets ``atomic = False``. Other databases
 (SQLite in development) get the plain operation.
+
+Without a transaction, a migration that fails midway keeps the steps done before
+the failure. Each operation here can run again over them, so the fix for a failed
+migration is to run it again.
 """
 
 from django.contrib.postgres import operations
 from django.contrib.postgres.operations import NotInTransactionMixin
+from django.db import migrations
 
 
 def is_postgresql(schema_editor) -> bool:
@@ -45,3 +50,15 @@ class AddIndexConcurrently(PlainOutsidePostgresMixin, operations.AddIndexConcurr
 
 class RemoveIndexConcurrently(PlainOutsidePostgresMixin, operations.RemoveIndexConcurrently):
     pass
+
+
+class AddFieldIfMissing(migrations.AddField):
+    """AddField that leaves the column alone if an interrupted run already added it."""
+
+    def database_forwards(self, app_label, schema_editor, from_state, to_state):
+        model = to_state.apps.get_model(app_label, self.model_name)
+        connection = schema_editor.connection
+        with connection.cursor() as cursor:
+            columns = connection.introspection.get_table_description(cursor, model._meta.db_table)
+        if model._meta.get_field(self.name).column not in {column.name for column in columns}:
+            super().database_forwards(app_label, schema_editor, from_state, to_state)

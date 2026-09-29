@@ -3,10 +3,17 @@
 Non-atomic: in one transaction, the lock taken by ADD COLUMN, which blocks even
 reads of the table, would last until the backfill finished. The column is added
 at once; the backfill then runs in id ranges, each a short statement of its own.
+
+Both steps can be repeated: the column is added only if missing, and the backfill
+sets every task's counter from its comments. A run that failed midway is simply
+run again, never marked applied with --fake.
 """
 
 from django.db import migrations, models
 from django.db.models import Count, Max, OuterRef, Subquery
+from django.db.models.functions import Coalesce
+
+from config.migration_operations import AddFieldIfMissing
 
 BATCH_SIZE = 10_000
 
@@ -21,11 +28,12 @@ def count_comments(apps, schema_editor):
         .annotate(total=Count("pk"))
         .values("total")
     )
+    actual = Coalesce(Subquery(counts), 0)
     last_id = Task.objects.aggregate(last=Max("pk"))["last"] or 0
     for start in range(0, last_id, BATCH_SIZE):
-        Task.objects.filter(
-            pk__gt=start, pk__lte=start + BATCH_SIZE, pk__in=Comment.objects.values("task")
-        ).update(comments_count=Subquery(counts))
+        Task.objects.filter(pk__gt=start, pk__lte=start + BATCH_SIZE).exclude(
+            comments_count=actual
+        ).update(comments_count=actual)
 
 
 class Migration(migrations.Migration):
@@ -36,7 +44,7 @@ class Migration(migrations.Migration):
     ]
 
     operations = [
-        migrations.AddField(
+        AddFieldIfMissing(
             model_name="task",
             name="comments_count",
             field=models.PositiveIntegerField(db_default=0, default=0, editable=False),
